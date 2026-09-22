@@ -76,8 +76,7 @@ def audit_case_pack(pack: pl.DataFrame, transactions: pl.DataFrame, cards: pl.Da
                 "card_id_matches_derived": row["card_id"] == row["derived_card_id"],
                 "card_id_exists": row["card_id"] in known_cards,
                 "customer_id": row["customer_id"],
-                "customer_id_matches_transaction": row["customer_id"]
-                == row["derived_customer_id"],
+                "customer_id_matches_transaction": row["customer_id"] == row["derived_customer_id"],
                 "customer_id_exists": row["customer_id"] in known_customers,
                 "anchor_time": row["flagged_ts"],
                 "flagged_amount": row["flagged_amount"],
