@@ -1,0 +1,138 @@
+// FraudGraph Investigator -- loading jobs v1
+//
+// One job per prepared file. Each job is run by
+// scripts/load_graph.py through runLoadingJobWithFile, which supplies the file
+// for the DEFINE FILENAME tag.
+//
+// Idempotence: TigerGraph loading is an upsert keyed on the primary id, so
+// rerunning a job overwrites the same vertices and edges rather than adding
+// duplicates. scripts/verify_graph.py proves this by reloading and comparing
+// counts.
+//
+// The prepared files carry NO header row, and HEADER="false" everywhere.
+// HEADER="true" does not stop TigerGraph creating a vertex whose primary id is
+// the column name, which inflated every vertex and edge count by exactly one.
+// Column order matches the prepared CSVs exactly; changing one means changing
+// the other.
+
+CREATE LOADING JOB load_cardholders FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX Cardholder VALUES($0, $1, $2, $3, $4)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_payment_cards FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX PaymentCard VALUES($0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_transactions FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX Transaction
+    VALUES($0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_device_profiles FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX DeviceProfile
+    VALUES($0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_email_domains FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX EmailDomain VALUES($0, $1, $2)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_billing_regions FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX BillingRegion VALUES($0, $1, $2, $3)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_closed_cases FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX ClosedCase
+    VALUES($0, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_policy_chunks FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO VERTEX PolicyChunk VALUES($0, $1, $2, $3, $4, $5)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_owns FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE OWNS VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_made FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE MADE VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_from_device FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE FROM_DEVICE VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_purchaser_email FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE PURCHASER_EMAIL VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_recipient_email FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE RECIPIENT_EMAIL VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_billed_in FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE BILLED_IN VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_next FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE NEXT VALUES($0, $1, $2)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_case_involves FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE CASE_INVOLVES VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_case_on_card FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE CASE_ON_CARD VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+CREATE LOADING JOB load_edge_case_connected_to FOR GRAPH HHGOAFraud {
+  DEFINE FILENAME f;
+  LOAD f TO EDGE CASE_CONNECTED_TO VALUES($0, $1)
+    USING SEPARATOR=",", HEADER="false", QUOTE="double";
+}
+
+// Vector attributes are NOT loaded by a loading job.
+//
+// TO VECTOR ATTRIBUTE is valid GSQL and the job is accepted, but running it
+// through the REST file-upload endpoint fails with
+//   REST-10005 "GetResult index out of range ... response_datas_.size(): 0"
+// on any size of file, including a 27-row one, so it is not a size limit.
+//
+// scripts/load_graph.py loads the embeddings through the REST upsert path
+// instead, which accepts a vector attribute directly and is verified by a
+// read-back and a vectorSearch in scripts/verify_graph.py.
