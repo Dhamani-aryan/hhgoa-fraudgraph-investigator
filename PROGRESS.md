@@ -2,7 +2,8 @@
 
 ## Current gate
 
-**Gate 0 — Repository, brief, and data contract: complete, awaiting review.**
+**Gate 0 — Repository, brief, and data contract: complete. Review findings
+corrected; awaiting re-review.**
 
 Gate 1 (TigerGraph graph and vector foundation) has not been started and will
 not be started until Gate 0 is approved.
@@ -62,11 +63,46 @@ mismatches and zero unresolved transactions.
   median of 1–2 cards. Shared-origin evidence must require time-local
   coordination, never raw degree.
 
+### Gate 0 review corrections
+
+Six findings from the Gate 0 review were fixed before any Gate 1 work.
+
+1. **Submission readiness could pass without a graph write.** `R17` only asks
+   whether `written_to_graph` matches reality, so an agent that skipped the
+   write and honestly reported `written_to_graph=false` passed it and looked
+   ready. New rule `R26` asks the question the challenge requires -- is the case
+   really in the graph? -- and blocks when the flag is false, when no receipt
+   was supplied, when the read-back failed, or when a confirmed write has no
+   `graph_case_id`. `blocked` is a new outcome that does not make the answer
+   invalid, matching the build plan's rule 26: a failed write leaves the answer
+   valid but fails the submission gate until retried. Adversarial tests assert
+   that the honest-but-unwritten answer has `R17 == PASSED` and `valid is True`
+   while `R26 == BLOCKED` and `ready_for_submission is False`.
+2. **The documented editable install could not succeed.** `pyproject.toml` had
+   no `[build-system]`, and setuptools cannot auto-discover this flat
+   multi-package layout. Added the build backend, listed the twelve packages
+   explicitly, declared the GSQL as package data, and added the missing
+   `app/components/__init__.py`.
+3. **No dependency lock.** Added `requirements.lock.txt` with 114 pinned
+   versions, verified by installing it into a clean virtual environment and
+   running the suite there.
+4. **README mixed the virtual environment with a bare `python`.** Every command
+   now calls `.venv/Scripts/python` explicitly, both install routes are
+   documented, and `bootstrap.py` names its own interpreter rather than
+   printing a bare `python`.
+5. **`vector` was missing from `TG_MCP_ALLOWED_TOOLS`.** The restricted MCP
+   surface excluded the tool the challenge requires for case and policy memory.
+   Added, with the reason recorded in the template.
+6. **Polars `empty_as_null` was left implicit.** Both `explode` call sites now
+   set it explicitly, pinning behaviour Polars 2.0 will change. Checked first
+   that no closed case has an empty list, so the counts are unchanged.
+
 ### The answer contract is executable
 
 The Pydantic models and the cross-field validator run today. Rules needing a
-run trace report `skipped`, never `passed`, so an answer cannot look fully
-validated without one.
+run trace report `skipped`, never `passed`, and a case with no confirmed graph
+receipt is `blocked`, so an answer cannot look submission ready without both a
+trace and a real write.
 
 ## Current blocker
 
@@ -94,13 +130,41 @@ python scripts/bootstrap.py
 
 ## Verification commands
 
+All commands use the virtual environment's interpreter explicitly.
+
 ```bash
-python scripts/bootstrap.py           # environment and dataset presence
-python scripts/prove_card_mapping.py  # card identifier proof, exit 0
-python scripts/run_data_audit.py      # full data audit, exit 0
-python scripts/validate_all_cases.py  # submission gate; exit 1 until cases exist
-python -m pytest tests/ -q            # 119 passed
-python -m ruff check .                # All checks passed
+.venv/Scripts/python -m pip install -e ".[dev]"
+```
+
+```bash
+.venv/Scripts/python scripts/bootstrap.py
+```
+
+```bash
+.venv/Scripts/python scripts/prove_card_mapping.py
+```
+
+```bash
+.venv/Scripts/python scripts/run_data_audit.py
+```
+
+```bash
+.venv/Scripts/python scripts/validate_all_cases.py
+```
+
+```bash
+.venv/Scripts/python -m pytest tests/ -q
+```
+
+```bash
+.venv/Scripts/python -m ruff check .
+```
+
+To reproduce the recorded results exactly, install from the pinned lock
+instead:
+
+```bash
+.venv/Scripts/python -m pip install -r requirements.lock.txt
 ```
 
 ## Verification performed
@@ -114,12 +178,22 @@ python -m ruff check .                # All checks passed
   matching.
 - `scripts/run_data_audit.py` exits 0 with all six blocking checks passing, and
   reconciles with every count the dataset README states.
-- `pytest tests/ -q` reports 119 passed, including 32 invalid answer fixtures
-  each rejected for its intended rule.
+- `pytest tests/ -q` reports 124 passed, including 32 invalid answer fixtures
+  each rejected for its intended rule and 5 adversarial graph-receipt tests.
 - `scripts/validate_all_cases.py` exits 1 against the empty `cases/` directory
   and names all twenty missing cases, which is the correct state before the
   agent exists.
+- `pip install -e ".[dev]"` succeeds and installs 78 packages including
+  pyTigerGraph 2.0.4, tigergraph-mcp 1.0.3, langgraph 1.2.12 and
+  streamlit 1.64.0. Every project package imports from outside the repository
+  root, so the install does not rely on the working directory.
+- `requirements.lock.txt` was installed into a clean virtual environment, where
+  the suite reported 124 passed.
+- Both data scripts were rerun with `-W error::DeprecationWarning` and exit 0,
+  with the counts unchanged at 14,955 closed-case links and 14,975 of 14,975
+  labelled links matching.
 
 ## Time spent
 
-Block A (core setup, budget 2–3 hours): Gate 0 completed within budget.
+Block A (core setup, budget 2–3 hours): Gate 0 completed within budget, plus
+one shorter pass to correct the six review findings.
