@@ -1,0 +1,49 @@
+# FraudGraph Investigator runtime settings.
+# Deterministic behaviour lives here; secrets live only in .env.
+
+dataset:
+  raw_dir: data/raw
+  files:
+    transactions: transactions.csv
+    identity: identity.csv
+    closed_cases: closed_cases_history.csv
+    case_pack: case_pack.csv
+    readme: README.md
+  expected_rows:
+    transactions: 590742
+    identity: 144432
+    closed_cases: 5565
+    case_pack: 20
+
+temporal:
+  # The anchor time for a benchmark case is the flagged transaction timestamp.
+  anchor_source: flagged_transaction_ts
+  memory_epoch: hhgoa_2026_benchmark_v1
+  # Closed cases are admissible memory only when closed_at <= anchor_time.
+  require_closed_before_anchor: true
+
+budgets:
+  max_graph_calls_per_case: 12
+  max_llm_calls_per_case: 3
+  max_evidence_request_cycles: 1
+  max_graph_hops: 2
+  max_rows_per_expansion: 500
+  max_wall_clock_s: 300
+
+policy:
+  version: "1.0"
+  case_creation_probability: 0.30
+  weak_signal_probability: 0.70
+  sar_exposure_threshold_usd: 1000.0
+  block_card_l2_exposure_usd: 2500.0
+  escalate_uncertain_exposure_usd: 500.0
+  no_reply_escalation_exposure_usd: 500.0
+  stop_high_probability: 0.85
+  stop_low_probability: 0.15
+  stop_min_independent_evidence: 2
+
+paths:
+  runs_dir: runs
+  cases_dir: cases
+  prepared_dir: data/prepared
+  cache_dir: data/cache
