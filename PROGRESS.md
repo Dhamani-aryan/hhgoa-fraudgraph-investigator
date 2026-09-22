@@ -2,11 +2,101 @@
 
 ## Current gate
 
-**Gate 0 — Repository, brief, and data contract: complete. Review findings
-corrected; awaiting re-review.**
+**Gate 1 — TigerGraph graph and vector foundation: complete, awaiting review.**
 
-Gate 1 (TigerGraph graph and vector foundation) has not been started and will
-not be started until Gate 0 is approved.
+Gate 2 (GSQL, graph algorithms, MCP, GraphRAG evidence) has not been started.
+
+## Gate 1 checklist
+
+- [x] Configure Savanna and document setup without committing credentials.
+- [x] Finalize the graph schema only after Gate 0 audit results.
+- [x] Prepare normalized, idempotent vertex/edge loading files and versioned
+      loading jobs.
+- [x] Load transactions, identities, customers/cards, shared entities, closed
+      cases, and case-memory text.
+- [x] Create the TigerGraph vector index/attributes for closed-case and
+      policy/typology retrieval.
+- [x] Reconcile expected versus loaded counts and run sampled path/vector
+      searches.
+
+**Gate 1 exit:** met. One card traverses to its transactions, cardholder,
+device, region and history; one semantic query returns relevant prior cases and
+policy chunks from TigerGraph vector search; rerunning the loader does not
+duplicate data.
+
+### What is live
+
+Workspace runs TigerGraph 4.2.5, which matters because vector attributes
+require 4.2+.
+
+Loaded and reconciled against the Gate 0 audit, every figure exact:
+
+| Vertex | Count | Edge | Count |
+|---|---:|---|---:|
+| Cardholder | 13,553 | OWNS | 14,317 |
+| PaymentCard | 14,317 | MADE | 590,742 |
+| Transaction | 590,742 | NEXT | 576,425 |
+| DeviceProfile | 9,706 | BILLED_IN | 525,003 |
+| EmailDomain | 60 | PURCHASER_EMAIL | 496,262 |
+| BillingRegion | 332 | RECIPIENT_EMAIL | 137,453 |
+| ClosedCase | 5,565 | FROM_DEVICE | 120,833 |
+| PolicyChunk | 27 | CASE_INVOLVES | 14,955 |
+
+2,481,647 edges in total. Vector attributes hold 5,565 closed-case embeddings
+and 27 policy embeddings at 1536 dimensions, COSINE, HNSW.
+
+### Two names had to change
+
+The workspace ships with a starter kit owning global `Customer` and `Card`
+vertex types, and TigerGraph refuses both a global and a graph-local type with
+those names. Rather than drop objects belonging to the workspace, the two
+colliding types are renamed `Cardholder` and `PaymentCard`. The rename is
+presentational: `customer_id` and `card_id` keep the dataset's own values, so
+nothing in an answer file changes. Dropping the starter-kit globals would free
+the original names if that is ever preferred.
+
+### TigerGraph behaviours that fail silently
+
+Each of these looked like success and is now recorded in the code that hit it:
+
+1. `CREATE VERTEX` is always global, so `DROP GRAPH` leaves the types behind
+   and the next run clashes with itself.
+2. A multi-statement GSQL file submitted in one call is accepted and does
+   nothing: no error, no types.
+3. `gsql` returns a transcript with a success status even when a statement
+   inside it failed.
+4. `getVertexTypes()` returns an empty list for a graph whose types
+   demonstrably exist.
+5. A vector attribute cannot appear in `CREATE VERTEX`; the schema-change job's
+   definition and its `RUN` are two statements, and the job outlives the graph.
+6. `LS` does not print vector attributes at all; only `getSchema()` shows them.
+7. `HEADER="true"` does not stop a vertex being created whose primary id is the
+   column name, which inflated every count by exactly one.
+8. The `graphname` argument does not carry the graph context into a multi-line
+   statement.
+9. A load result's counts live at `statistics.parsingStatistics.objectLevel`,
+   not at `statistics`.
+10. `getVertexCount()` without `realtime=True` lags a load badly enough to
+    report a half-loaded graph as finished.
+11. `vectorSearch` is rejected inside an `INTERPRET QUERY`, so the vector path
+    must be an installed query.
+12. `TO VECTOR ATTRIBUTE` in a loading job installs but fails at run time
+    through the REST file endpoint on any file size; embeddings go through the
+    REST upsert path instead.
+
+### Retrieval quality, measured
+
+The query "three small online authorizations within an hour followed by a
+larger purchase from a device new to the account" returns CC-1242 and CC-0370
+(confirmed `card_testing`), CC-0609 and CC-3112 (`card_not_present_new_device`)
+and CC-3107 (`cleared`) — contrastive rather than all-fraud, which is what the
+plan asks for. Policy search returns `pattern:card_testing`,
+`pattern:card_not_present_fraud` and `policy:R5`, the card-testing rule.
+
+A unit test caught a real retrieval failure: "the customer denied the
+transaction" ranked policy R3 (customer confirms) above R2 (customer denies),
+the opposite rule, because "denied" and "denies" hashed to different buckets.
+Light stemming fixed it and the test now guards it.
 
 ## Gate 0 checklist
 
@@ -106,31 +196,37 @@ trace and a real write.
 
 ## Current blocker
 
-**TigerGraph credentials are not yet supplied.** Gate 1 needs a Savanna
-workspace (or Community Edition) and the `TG_*` values in `.env`.
-
-`.venv/Scripts/python scripts/bootstrap.py` reports the missing variables by
-name without printing any value.
-
-No blocker remains inside Gate 0.
+None blocking. One item to confirm: **auto-stop and auto-start on the Savanna
+workspace**. The official brief requires them and Gate 1 records the setup;
+they have not been verified from here, and an auto-stop firing mid-load would
+otherwise look like a connection failure.
 
 ## Next action
 
-Await Gate 0 review. On approval, begin Gate 1 with the first sub-step:
-configure the TigerGraph workspace with auto-stop and auto-start, record the
-setup without committing credentials, and confirm connectivity — then finalise
-the graph schema against the audit results above.
+Await Gate 1 review. On approval, begin Gate 2: the remaining bounded GSQL
+query family with `as_of_ts`, time-bounded WCC as a TigerGraph graph algorithm,
+TigerGraph MCP with a restricted tool surface, and the GraphRAG context builder.
 
-First command for Gate 1:
+## Reproducing the graph from scratch
 
 ```bash
-cp .env.example .env
+.venv/Scripts/python scripts/install_schema.py --recreate
 ```
 
-Fill the `TG_*` values locally, then:
+```bash
+.venv/Scripts/python scripts/prepare_graph_files.py
+```
 
 ```bash
-.venv/Scripts/python scripts/bootstrap.py
+.venv/Scripts/python scripts/load_graph.py
+```
+
+```bash
+.venv/Scripts/python scripts/install_queries.py
+```
+
+```bash
+.venv/Scripts/python scripts/verify_graph.py --reload-check
 ```
 
 ## Verification commands
