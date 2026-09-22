@@ -42,14 +42,29 @@ class AnswerReport:
         return [rule for rule in self.rules if rule["outcome"] == Outcome.SKIPPED]
 
     @property
+    def blocked_rules(self) -> list[dict]:
+        """Rules the answer does not fail but which stop it being submitted."""
+        return [rule for rule in self.rules if rule["outcome"] == Outcome.BLOCKED]
+
+    @property
     def valid(self) -> bool:
-        """Schema holds and no cross-field rule failed."""
+        """Schema holds and no cross-field rule failed.
+
+        A blocked rule does not make the answer invalid: the build plan requires
+        a failed graph write to leave the answer valid while still failing the
+        submission gate.
+        """
         return self.schema_valid and not self.failed_rules
 
     @property
     def ready_for_submission(self) -> bool:
-        """Valid and fully checked: nothing was skipped for want of a trace."""
-        return self.valid and not self.skipped_rules
+        """Valid, fully checked, and not blocked by a missing requirement.
+
+        Nothing may be skipped for want of a run trace, and nothing may be
+        blocked -- notably, the case must carry a confirmed graph write and
+        read-back receipt.
+        """
+        return self.valid and not self.skipped_rules and not self.blocked_rules
 
 
 def _rule_to_dict(result: RuleResult) -> dict:
@@ -133,6 +148,11 @@ def validate_directory(
         "files_found": len(files),
         "missing_case_ids": sorted(expected_ids - found_ids),
         "unexpected_case_ids": sorted(found_ids - expected_ids),
+        "cases_without_graph_receipt": sorted(
+            report.case_id or report.path
+            for report in reports
+            if any(rule["rule_id"] == "R26" for rule in report.blocked_rules)
+        ),
         "reports": [
             asdict(report)
             | {

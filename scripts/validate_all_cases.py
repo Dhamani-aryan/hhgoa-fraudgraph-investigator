@@ -49,13 +49,19 @@ def main() -> int:
     if report["unexpected_case_ids"]:
         print(f"unexpected      : {', '.join(report['unexpected_case_ids'])}")
 
+    if report["cases_without_graph_receipt"]:
+        print(f"no graph receipt: {', '.join(report['cases_without_graph_receipt'])}")
+
     for item in report["reports"]:
         failed = [rule["rule_id"] for rule in item["rules"] if rule["outcome"] == "failed"]
         skipped = [rule["rule_id"] for rule in item["rules"] if rule["outcome"] == "skipped"]
+        blocked = [rule["rule_id"] for rule in item["rules"] if rule["outcome"] == "blocked"]
         if not item["schema_valid"]:
             status = "SCHEMA FAIL"
         elif failed:
             status = "RULE FAIL"
+        elif blocked:
+            status = "VALID (not submittable)"
         elif skipped:
             status = "VALID (unchecked rules)"
         else:
@@ -64,7 +70,7 @@ def main() -> int:
         for message in item["schema_errors"]:
             print(f"      schema: {message}")
         for rule in item["rules"]:
-            if rule["outcome"] == "failed":
+            if rule["outcome"] in ("failed", "blocked"):
                 for failure in rule["failures"]:
                     print(f"      {rule['rule_id']}: {failure}")
         if skipped:
@@ -75,7 +81,16 @@ def main() -> int:
         print("Result: all cases valid and fully checked.")
         return 0
     if report["all_valid"]:
-        print("Result: all cases valid, but some rules could not be checked without a run trace.")
+        if report["cases_without_graph_receipt"]:
+            print(
+                "Result: all cases valid, but "
+                f"{len(report['cases_without_graph_receipt'])} have no confirmed graph "
+                "write/read-back receipt. Retry the write before submitting."
+            )
+        else:
+            print(
+                "Result: all cases valid, but some rules could not be checked without a run trace."
+            )
         return 1
     print("Result: FAILED.")
     return 1

@@ -17,6 +17,7 @@ part.
 | Shape and self-consistency | `domain/answer_models.py` | field names, types, ranges, sentence counts, and the agreements an answer can check about itself |
 | Dataset agreement | `validation/cross_field_rules.py` (dataset rules) | identifier existence, exposure recomputation, route recomputation, prior-case temporal admissibility |
 | Trace agreement | `validation/cross_field_rules.py` (run rules) | retrieval provenance, graph read-back, ledger references, cutoff, independence, shared-origin bar, R10, memory epoch |
+| Submission requirement | `validation/cross_field_rules.py` rule R26 | the case is really in the graph, with a confirmed write and read-back |
 | Batch gate | `scripts/validate_all_cases.py` | exactly twenty files, filenames matching case IDs, machine and human reports, non-zero exit on any failure |
 
 ## Top level
@@ -79,6 +80,24 @@ These are the ones easy to lose; each is a test.
    from the supplied `risk_score`.
 8. Customer and analyst replies are simulated; the assumption is stated in
    `evidence_requests` and `final` reflects it.
+9. The case must be written to the graph. — rule R26
+
+## Valid is not the same as submittable
+
+A rule outcome is one of `passed`, `failed`, `skipped` or `blocked`.
+
+- `failed` means the answer is wrong. It makes the answer invalid.
+- `skipped` means a rule could not be checked because no run trace was
+  supplied. It never counts as a pass.
+- `blocked` means the answer is internally correct but a submission
+  requirement is unmet. The build plan's rule 26 requires exactly this shape:
+  a failed graph write leaves the answer valid, sets `written_to_graph=false`,
+  and fails the submission gate until the write is retried successfully.
+
+`ready_for_submission` is true only when the answer is valid, nothing was
+skipped, and nothing is blocked. An agent that never writes to the graph and
+reports that honestly passes R17 -- it claimed nothing untrue -- but R26 blocks
+it, so it can never look submission ready.
 
 ## Worked example
 

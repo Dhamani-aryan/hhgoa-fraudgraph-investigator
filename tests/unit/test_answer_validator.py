@@ -329,3 +329,85 @@ def test_mutating_one_field_breaks_submission_readiness(payload, index):
     broken["case"]["exposure_usd"] = 1.0
     report = report_for(broken, index)
     assert report.ready_for_submission is False
+
+
+# --- adversarial: the graph write must actually have happened ---------------
+
+
+def _complete_run(payload: dict, **overrides) -> RunContext:
+    """A run trace that satisfies every trace rule, before overrides."""
+    refs = [item["ref"] for item in payload["case"]["evidence"]]
+    base = {
+        "ledger_refs": frozenset(refs),
+        "policy_refs": frozenset({"policy:R1", "policy:R2"}),
+        "retrieved_case_ids": frozenset({"CC-0137", "CC-0003"}),
+        "independence_groups": dict(
+            zip(refs, ["temporal_sequence", "device_network", "customer_response"], strict=True)
+        ),
+        "graph_write_confirmed": True,
+        "active_memory_epoch_case_ids": frozenset(),
+        "evidence_max_ts": {"__anchor__": "2016-11-11 23:46:24"}
+        | dict.fromkeys(refs, "2016-11-11 23:46:24"),
+        "simulated_refs": frozenset({"evidence_request:1"}),
+        "shared_origin_supported": True,
+        "customer_confirmed_fraud_cards": frozenset(),
+        "credentials_confirmed_compromised": False,
+    }
+    return RunContext(**(base | overrides))
+
+
+def test_honest_unwritten_case_is_valid_but_not_submittable(payload, index):
+    """The loophole this closes.
+
+    An agent that never writes to the graph and honestly reports
+    written_to_graph=false passes R17, because it claimed nothing untrue. It
+    must still not be submission ready: the challenge requires the case to be
+    in the graph.
+    """
+    payload["case"]["written_to_graph"] = False
+    payload["case"]["graph_case_id"] = ""
+    run = _complete_run(payload, graph_write_confirmed=None)
+    report = report_for(payload, index, run)
+
+    assert outcomes(report)["R17"] == Outcome.PASSED, "R17 alone cannot catch this"
+    assert report.failed_rules == [], "the answer itself is still correct"
+    assert report.valid is True, "the build plan requires it to stay valid"
+    assert outcomes(report)["R26"] == Outcome.BLOCKED
+    assert report.ready_for_submission is False
+
+
+def test_missing_receipt_blocks_even_when_write_is_claimed(payload, index):
+    run = _complete_run(payload, graph_write_confirmed=None)
+    report = report_for(payload, index, run)
+    assert outcomes(report)["R26"] == Outcome.BLOCKED
+    assert report.ready_for_submission is False
+
+
+def test_failed_readback_blocks_and_fails(payload, index):
+    run = _complete_run(payload, graph_write_confirmed=False)
+    report = report_for(payload, index, run)
+    assert outcomes(report)["R17"] == Outcome.FAILED
+    assert outcomes(report)["R26"] == Outcome.BLOCKED
+    assert report.valid is False
+    assert report.ready_for_submission is False
+
+
+def test_confirmed_write_is_submittable(payload, index):
+    report = report_for(payload, index, _complete_run(payload))
+    assert outcomes(report)["R26"] == Outcome.PASSED
+    assert report.blocked_rules == []
+    assert report.ready_for_submission is True
+
+
+def test_directory_gate_names_cases_without_a_receipt(payload, index, tmp_path):
+    """The batch gate must report which cases lack a receipt, not just fail."""
+    from validation.answer_validator import validate_directory
+
+    payload["case"]["written_to_graph"] = False
+    payload["case"]["graph_case_id"] = ""
+    (tmp_path / "HHG-017.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    report = validate_directory(tmp_path, index, runs={"HHG-017": _complete_run(payload)})
+    assert report["cases_without_graph_receipt"] == ["HHG-017"]
+    assert report["all_ready_for_submission"] is False
+    assert report["reports"][0]["valid"] is True

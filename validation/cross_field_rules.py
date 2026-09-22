@@ -25,6 +25,11 @@ class Outcome(StrEnum):
     PASSED = "passed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    #: The answer is internally correct but the submission requirement is not
+    #: met. The build plan's rule 26 requires exactly this: a failed graph write
+    #: leaves the answer valid with written_to_graph=false and fails the
+    #: submission gate until the write is retried successfully.
+    BLOCKED = "blocked"
 
 
 @dataclass(frozen=True)
@@ -83,6 +88,13 @@ def _result(rule_id: str, name: str, failures: list[str]) -> RuleResult:
 
 def _skip(rule_id: str, name: str, detail: str) -> RuleResult:
     return RuleResult(rule_id=rule_id, name=name, outcome=Outcome.SKIPPED, detail=detail)
+
+
+def _block(rule_id: str, name: str, reason: str) -> RuleResult:
+    """The answer stays valid, but it cannot be submitted in this state."""
+    return RuleResult(
+        rule_id=rule_id, name=name, outcome=Outcome.BLOCKED, failures=[reason], detail=reason
+    )
 
 
 # --------------------------------------------------------------------------
@@ -466,6 +478,47 @@ def rule_25c_memory_epoch_excluded(answer: CaseAnswer, run: RunContext) -> RuleR
     return _result("R25c", "active memory epoch excluded", failures)
 
 
+def rule_26_case_is_in_the_graph(answer: CaseAnswer, run: RunContext) -> RuleResult:
+    """Every submitted case must really be in the graph.
+
+    R17 asks a different question: does the answer's ``written_to_graph`` claim
+    match reality? An answer that honestly reports ``written_to_graph=false``
+    passes R17, because it claimed nothing untrue. It is still not submittable:
+    the challenge requires the case to be written to the graph, and the build
+    plan's rule 26 says a failed write leaves the answer valid but fails the
+    submission gate until the write is retried successfully.
+
+    So this rule blocks rather than fails, and blocking is what
+    ``ready_for_submission`` keys on. Without it an agent could skip the graph
+    write entirely, report it honestly, and still look submission ready.
+    """
+    name = "the case is written to the graph and read back"
+    if not answer.case.written_to_graph:
+        return _block(
+            "R26",
+            name,
+            "written_to_graph is false, so this case has no graph receipt and "
+            "cannot be submitted until the write is retried successfully",
+        )
+    if run.graph_write_confirmed is None:
+        return _block(
+            "R26",
+            name,
+            "written_to_graph is true but no write/read-back receipt was supplied, "
+            "so the claim is unverified and the case cannot be submitted",
+        )
+    if not run.graph_write_confirmed:
+        return _block(
+            "R26",
+            name,
+            "the recorded graph write/read-back did not succeed, so the case "
+            "cannot be submitted until it is retried successfully",
+        )
+    if not answer.case.graph_case_id:
+        return _block("R26", name, "no graph_case_id recorded for a confirmed write")
+    return _result("R26", name, [])
+
+
 RUN_RULES = (
     rule_09_prior_cases_were_retrieved,
     rule_15_block_all_cards_justified,
@@ -475,6 +528,7 @@ RUN_RULES = (
     rule_23_two_independent_groups,
     rule_24_shared_origin_supported,
     rule_25c_memory_epoch_excluded,
+    rule_26_case_is_in_the_graph,
 )
 
 
