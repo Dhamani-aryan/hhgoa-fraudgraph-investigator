@@ -34,7 +34,12 @@ def load_labelled_links() -> pl.DataFrame:
     closed_links = (
         closed.select(["case_id", "card_id", "txn_ids"])
         .with_columns(pl.col("txn_ids").str.split("|").alias("txn"))
-        .explode("txn")
+        # empty_as_null pins the behaviour Polars 2.0 will change. True keeps a
+        # case whose txn_ids list is empty as a visible null row instead of
+        # silently dropping it. No closed case has an empty list today (the
+        # shortest is one transaction), so both settings yield the same
+        # 14,955 links; this makes the choice explicit rather than implicit.
+        .explode("txn", empty_as_null=True)
         .select(
             pl.col("case_id"),
             pl.col("card_id"),

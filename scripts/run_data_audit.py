@@ -104,7 +104,12 @@ def audit_closed_cases(closed: pl.DataFrame, transactions: pl.DataFrame) -> dict
     exploded = (
         closed.select(["case_id", "card_id", "customer_id", "txn_ids", "closed_at"])
         .with_columns(pl.col("txn_ids").str.split("|").alias("txn"))
-        .explode("txn")
+        # empty_as_null pins the behaviour Polars 2.0 will change. True keeps a
+        # case whose txn_ids list is empty as a visible null row instead of
+        # silently dropping it. No closed case has an empty list today (the
+        # shortest is one transaction), so both settings yield the same
+        # 14,955 links; this makes the choice explicit rather than implicit.
+        .explode("txn", empty_as_null=True)
         .rename({"txn": "TransactionID"})
     )
     joined = exploded.join(
