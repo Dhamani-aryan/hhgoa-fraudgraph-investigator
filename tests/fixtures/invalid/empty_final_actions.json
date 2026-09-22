@@ -1,0 +1,87 @@
+{
+  "case_id": "HHG-017",
+  "case": {
+    "status": "closed_fraud",
+    "verdict": "fraud",
+    "fraud_probability": 0.86,
+    "pattern": "card_testing",
+    "pattern_description": "",
+    "affected_txn_ids": [
+      "3450436",
+      "3450503",
+      "3450629"
+    ],
+    "first_suspicious_txn_id": "3450436",
+    "connected_card_ids": [],
+    "connected_device_profiles": [
+      "Windows | Windows 10 | chrome 65.0 | 1920x1080"
+    ],
+    "exposure_usd": 300.14,
+    "evidence": [
+      {
+        "claim": "Three online authorizations of $100.09, $99.96 and $100.09 within 70 minutes on card C04570-K1, ending with the flagged transaction",
+        "source": "graph",
+        "ref": "query:get_transaction_window_v1(card_id=C04570-K1, anchor=2016-11-11T23:46:24, hours_before=2)",
+        "entity_ids": [
+          "3450436",
+          "3450503",
+          "3450629"
+        ]
+      },
+      {
+        "claim": "All three came from the same device profile, which the card had also used in October, so the device is not new to this account",
+        "source": "graph",
+        "ref": "query:find_shared_origin_activity_v1(device=Windows | Windows 10 | chrome 65.0 | 1920x1080)",
+        "entity_ids": [
+          "3403833",
+          "3450629"
+        ]
+      },
+      {
+        "claim": "Customer stated they did not make these purchases and still holds the card",
+        "source": "customer",
+        "ref": "evidence_request:1",
+        "entity_ids": [
+          "C04570"
+        ]
+      }
+    ],
+    "similar_prior_cases": [
+      "CC-0137",
+      "CC-0003"
+    ],
+    "summary": "Three online authorizations of about $100 each landed on card C04570-K1 within 70 minutes on 2016-11-11, ending with the flagged transaction. All three came from a device profile the card had used before, so the device itself is not new. The cardholder denied the activity when asked. Exposure is $300.14 across the three transactions.",
+    "written_to_graph": true,
+    "graph_case_id": "CASE-HHG-017"
+  },
+  "evidence_requests": [
+    {
+      "type": "customer_validation",
+      "asked_after_step": 4,
+      "assumed_response": "Simulated: customer states they did not make these purchases and still has the card"
+    }
+  ],
+  "next_best_actions": {
+    "initial": [
+      {
+        "action": "VERIFY_WITH_CUSTOMER",
+        "route": "auto",
+        "reason": "R1: probability below 0.70 on a single-signal velocity pattern, verify before any block"
+      }
+    ],
+    "final": [],
+    "what_changed": "The customer denied the transactions, which raised the probability and moved the recommendation from verification to a block with a case."
+  },
+  "sar": {
+    "file": false,
+    "reason": "R2: exposure of $300.14 is below the $1,000 threshold and the activity connects to no shared device, region cluster or other customer's fraud, so a case without a report is the correct disposition.",
+    "narrative": "",
+    "subjects": [],
+    "total_amount_usd": 0,
+    "activity_dates": []
+  },
+  "stop_reason": "The customer denial settled the verdict and no further evidence could change the action.",
+  "tool_calls": 7,
+  "tokens": 9120,
+  "latency_s": 14.2
+}
