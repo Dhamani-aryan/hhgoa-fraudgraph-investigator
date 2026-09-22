@@ -15,22 +15,78 @@ credentials. See [PROGRESS.md](PROGRESS.md).
 
 ## Getting started
 
+Python 3.11 or newer. Every command below uses the virtual environment's
+interpreter explicitly, so nothing depends on which `python` is on PATH or on
+whether the environment is activated.
+
+Create the environment:
+
 ```bash
 python -m venv .venv
-.venv/Scripts/python -m pip install -e ".[dev]"   # Windows
-cp .env.example .env                              # then fill the TG_* values
-python scripts/bootstrap.py
+```
+
+Install. Use the pinned lock to reproduce the recorded results exactly:
+
+```bash
+.venv/Scripts/python -m pip install -r requirements.lock.txt
+```
+
+```bash
+.venv/Scripts/python -m pip install -e . --no-deps
+```
+
+Or resolve fresh from `pyproject.toml`, which may pick up newer versions:
+
+```bash
+.venv/Scripts/python -m pip install -e ".[dev]"
+```
+
+On macOS or Linux the interpreter is `.venv/bin/python` instead of
+`.venv/Scripts/python`; `requirements.lock.txt` is Windows-specific, so resolve
+from `pyproject.toml` there and record a separate lock.
+
+Configure. Copy the template and fill the `TG_*` values locally; `.env` is
+git-ignored and must never be committed:
+
+```bash
+cp .env.example .env
 ```
 
 Place the four supplied files and the dataset README in `data/raw/`; see
 [data/README.md](data/README.md). They are git-ignored and never committed.
 
+Check the environment and the dataset. This reports any missing `TG_*`
+variable by name without printing its value:
+
 ```bash
-python scripts/prove_card_mapping.py  # prove the derived card_id
-python scripts/run_data_audit.py      # write runs/data_audit.json
-python scripts/validate_all_cases.py  # the submission validation gate
-python -m pytest tests/ -q
+.venv/Scripts/python scripts/bootstrap.py
 ```
+
+## Verify
+
+```bash
+.venv/Scripts/python scripts/prove_card_mapping.py
+```
+
+```bash
+.venv/Scripts/python scripts/run_data_audit.py
+```
+
+```bash
+.venv/Scripts/python scripts/validate_all_cases.py
+```
+
+```bash
+.venv/Scripts/python -m pytest tests/ -q
+```
+
+```bash
+.venv/Scripts/python -m ruff check .
+```
+
+`validate_all_cases.py` is the submission gate. It exits non-zero until all
+twenty answers exist, pass every rule, and each carries a confirmed TigerGraph
+write and read-back receipt.
 
 ## Required platform path
 

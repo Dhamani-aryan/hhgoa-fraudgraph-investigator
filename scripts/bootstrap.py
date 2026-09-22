@@ -78,7 +78,12 @@ def main() -> int:
         print("Result: NOT READY. Place the supplied files in data/raw/ and rerun.")
         return 1
 
-    print("Result: ready for the Gate 0 data audit (python scripts/run_data_audit.py).")
+    # Name the interpreter running this check, so the suggested next command
+    # uses the same environment rather than whatever `python` resolves to.
+    print(
+        f"Result: ready for the Gate 0 data audit "
+        f"({Path(sys.executable).name} scripts/run_data_audit.py)."
+    )
     return 0
 
 
