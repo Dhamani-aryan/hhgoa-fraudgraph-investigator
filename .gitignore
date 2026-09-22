@@ -1,0 +1,34 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Source and prepared datasets
+data/raw/
+data/prepared/
+data/cache/
+*.parquet
+
+# Runtime artifacts
+runs/
+.langgraph/
+*.sqlite
+*.sqlite3
+
+# Local document review artifacts
+.docx-review/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
