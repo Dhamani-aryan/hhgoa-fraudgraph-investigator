@@ -18,6 +18,11 @@ runs/
 # Local document review artifacts
 .docx-review/
 
+# Python build artifacts
+*.egg-info/
+build/
+dist/
+
 # Python
 __pycache__/
 *.py[cod]
