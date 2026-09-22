@@ -109,8 +109,8 @@ trace and a real write.
 **TigerGraph credentials are not yet supplied.** Gate 1 needs a Savanna
 workspace (or Community Edition) and the `TG_*` values in `.env`.
 
-`python scripts/bootstrap.py` reports the missing variables by name without
-printing any value.
+`.venv/Scripts/python scripts/bootstrap.py` reports the missing variables by
+name without printing any value.
 
 No blocker remains inside Gate 0.
 
@@ -124,8 +124,13 @@ the graph schema against the audit results above.
 First command for Gate 1:
 
 ```bash
-cp .env.example .env   # then fill the TG_* values locally
-python scripts/bootstrap.py
+cp .env.example .env
+```
+
+Fill the `TG_*` values locally, then:
+
+```bash
+.venv/Scripts/python scripts/bootstrap.py
 ```
 
 ## Verification commands
