@@ -1,14 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "fraudgraph-investigator"
 version = "0.1.0"
 description = "HHGOA TigerGraph agentic fraud investigation agent"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.9",
     "polars>=1.0",
     "duckdb>=1.0",
     "pyTigerGraph>=1.6",
-    "tigergraph-mcp",
+    "tigergraph-mcp>=1.0",
     "langgraph>=0.2",
     "streamlit>=1.38",
     "plotly>=5.24",
@@ -18,6 +23,31 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+
+# This repository uses a flat multi-package layout: each top-level directory in
+# the build plan's structure is its own importable package. Setuptools cannot
+# auto-discover a flat layout with more than one package, so they are listed
+# explicitly. `tests` is deliberately not packaged.
+[tool.setuptools]
+packages = [
+    "agent",
+    "app",
+    "app.components",
+    "domain",
+    "evaluation",
+    "evidence",
+    "graph",
+    "ingestion",
+    "policy",
+    "retrieval",
+    "scoring",
+    "scripts",
+    "validation",
+]
+
+# GSQL lives beside the Python that installs it, so it ships with the package.
+[tool.setuptools.package-data]
+graph = ["*.gsql", "queries/*.gsql"]
 
 [tool.ruff]
 line-length = 100

@@ -1,0 +1,14 @@
+pydantic>=2.9
+polars>=1.0
+duckdb>=1.0
+pyTigerGraph>=1.6
+tigergraph-mcp>=1.0
+langgraph>=0.2
+streamlit>=1.38
+plotly>=5.24
+pyyaml>=6.0
+python-dotenv>=1.0
+
+[dev]
+pytest>=8.0
+ruff>=0.6
