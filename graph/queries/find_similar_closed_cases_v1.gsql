@@ -1,0 +1,40 @@
+// find_similar_closed_cases_v1
+//
+// TigerGraph vector search over closed-case memory.
+//
+// Installed rather than interpreted: vectorSearch is rejected in an
+// INTERPRET QUERY with "Unsupported Statement|TOPK_VEC_SEARCH_FUNC", so the
+// vector path must be an installed query.
+//
+// as_of_ts enforces the temporal contract at the source: a closed case is
+// admissible memory only when it closed at or before the new case's anchor
+// time. Filtering here rather than in Python means a leaking case never
+// reaches the agent at all.
+//
+// exclude_case_id keeps a case from retrieving itself during replay.
+
+CREATE QUERY find_similar_closed_cases_v1(
+  LIST<float> query_vector,
+  STRING as_of_ts,
+  INT k = 6,
+  STRING exclude_case_id = ""
+) FOR GRAPH HHGOAFraud {
+  // Over-fetch, because the causal and self filters run after the search and
+  // would otherwise leave fewer than k results.
+  candidates = vectorSearch({ClosedCase.memory_embedding}, query_vector, k * 6);
+
+  admissible = SELECT c FROM candidates:c
+    WHERE datetime_to_epoch(c.closed_at) <= datetime_to_epoch(to_datetime(as_of_ts))
+      AND c.case_id != exclude_case_id
+    LIMIT k;
+
+  PRINT admissible[
+    admissible.case_id,
+    admissible.outcome,
+    admissible.pattern,
+    admissible.exposure_usd,
+    admissible.closed_at,
+    admissible.card_id,
+    admissible.memory_text
+  ];
+}
