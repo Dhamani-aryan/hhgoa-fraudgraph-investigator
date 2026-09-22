@@ -1,0 +1,271 @@
+// FraudGraph Investigator -- graph schema v1
+//
+// Target: TigerGraph 4.2+ (vector attributes require 4.2).
+// Graph name comes from TG_GRAPHNAME, default HHGOAFraud.
+//
+// Run with:  .venv/Scripts/python scripts/install_schema.py
+//
+// Every count below is from the Gate 0 audit (runs/data_audit.json), not an
+// estimate. The schema is deliberately narrow: the graph holds what
+// relationship discovery needs, and the 339 anonymous Vesta V-columns stay in
+// local Parquet, reachable per transaction for supplementary evidence.
+//
+//   Cardholder         13,553   the README's "Customer"
+//   PaymentCard        14,317   the README's "Card"; derived, see
+//                               ingestion/identifiers.py
+//   Transaction       590,742
+//   ClosedCase          5,565   4,665 confirmed_fraud / 900 cleared
+//   DeviceProfile      <=9,706  from 144,432 identity rows
+//   BillingRegion         332   supernode: one value touches up to 2,075 cards
+//   EmailDomain          ~110   supernode: gmail.com touches 9,332 cards
+//
+// Timestamps are naive local time. The audit proved ts is exactly linear in
+// TransactionDT with a single offset (1467417600 = 2016-07-02 UTC), so ts is
+// derived event time and carries no timezone.
+
+// ---------------------------------------------------------------------------
+// Core entity vertices
+// ---------------------------------------------------------------------------
+
+CREATE VERTEX Cardholder (
+  PRIMARY_ID customer_id STRING,
+  n_cards INT DEFAULT 0,
+  n_transactions INT DEFAULT 0,
+  first_seen DATETIME,
+  last_seen DATETIME
+) WITH primary_id_as_attribute="true";
+
+// card_id is derived: <customer_id>-K<n> over distinct card6 values per
+// customer, ordered ascending with the missing value first. Proven against
+// 14,975 of 14,975 labelled links. card_type is the card6 value the index
+// came from, so the derivation stays inspectable in the graph.
+CREATE VERTEX PaymentCard (
+  PRIMARY_ID card_id STRING,
+  customer_id STRING,
+  card_type STRING,
+  card_network STRING,
+  issuer_card1 STRING,
+  issuer_card2 STRING,
+  issuer_card3 STRING,
+  issuer_card5 STRING,
+  n_transactions INT DEFAULT 0,
+  first_seen DATETIME,
+  last_seen DATETIME
+) WITH primary_id_as_attribute="true";
+
+// TransactionID is kept as STRING everywhere so the answer files, the CSVs and
+// the graph agree on one representation.
+CREATE VERTEX Transaction (
+  PRIMARY_ID txn_id STRING,
+  ts DATETIME,
+  amount DOUBLE,
+  product_cd STRING,
+  channel STRING,
+  risk_score DOUBLE,
+  addr1 STRING,
+  addr2 STRING,
+  dist1 DOUBLE,
+  dist2 DOUBLE,
+  p_email_domain STRING,
+  r_email_domain STRING,
+  card_id STRING,
+  customer_id STRING,
+  // Pointer back to the full Vesta feature row in local Parquet.
+  raw_row_ref STRING
+) WITH primary_id_as_attribute="true";
+
+// device_id is a deterministic hash of the normalized signature.
+// signature_strength counts how many of DeviceInfo / id_30 / id_31 / id_33 are
+// present, 0 to 4. The audit distribution is 4:71,288  3:6,335  2:43,210
+// 1:19,951  0:3,648. A weak signature stays transaction-local: FROM_DEVICE is
+// only created at strength >= 2, because collapsing rows on a coarse field
+// alone would invent links between unrelated cards.
+CREATE VERTEX DeviceProfile (
+  PRIMARY_ID device_id STRING,
+  label STRING,
+  device_info STRING,
+  operating_system STRING,
+  browser STRING,
+  screen STRING,
+  device_type STRING,
+  proxy_category STRING,
+  match_status STRING,
+  new_or_found STRING,
+  signature_strength INT DEFAULT 0,
+  n_transactions INT DEFAULT 0,
+  n_cards INT DEFAULT 0,
+  first_seen DATETIME,
+  last_seen DATETIME
+) WITH primary_id_as_attribute="true";
+
+// Supernode. n_cards is stored so a rarity check is one hop, never a scan, and
+// so no query can mistake raw degree for coordination.
+CREATE VERTEX EmailDomain (
+  PRIMARY_ID domain STRING,
+  n_transactions INT DEFAULT 0,
+  n_cards INT DEFAULT 0
+) WITH primary_id_as_attribute="true";
+
+// Supernode, same reasoning as EmailDomain.
+CREATE VERTEX BillingRegion (
+  PRIMARY_ID region_code STRING,
+  country_code STRING,
+  n_transactions INT DEFAULT 0,
+  n_cards INT DEFAULT 0
+) WITH primary_id_as_attribute="true";
+
+// ---------------------------------------------------------------------------
+// Case vertices
+// ---------------------------------------------------------------------------
+
+// The bank's finished investigations, July to October 2016. Every attribute
+// here except case_id, customer_id, card_id and opened_at is created at or
+// after closure, so a closed case is admissible as memory for a new case only
+// when closed_at <= that case's anchor time.
+CREATE VERTEX ClosedCase (
+  PRIMARY_ID case_id STRING,
+  customer_id STRING,
+  card_id STRING,
+  opened_at DATETIME,
+  closed_at DATETIME,
+  outcome STRING,
+  pattern STRING,
+  first_fraud_txn_id STRING,
+  n_txns INT DEFAULT 0,
+  exposure_usd DOUBLE DEFAULT 0.0,
+  actions_taken STRING,
+  report_filed STRING,
+  analyst_notes STRING,
+  // Retrieval text: the narrative the vector index is built over.
+  memory_text STRING
+) WITH primary_id_as_attribute="true";
+
+// This agent's own investigations, written back as case memory.
+// memory_epoch isolates the benchmark run: the twenty benchmark cases share one
+// epoch and must stay invisible to prior-case retrieval until every answer is
+// frozen. The version fields make a replay deterministic and let a superseded
+// run be identified rather than silently overwritten.
+CREATE VERTEX InvestigationCase (
+  PRIMARY_ID case_id STRING,
+  memory_epoch STRING,
+  status STRING,
+  verdict STRING,
+  fraud_probability DOUBLE DEFAULT 0.0,
+  pattern STRING,
+  pattern_description STRING,
+  exposure_usd DOUBLE DEFAULT 0.0,
+  first_suspicious_txn_id STRING,
+  summary STRING,
+  stop_reason STRING,
+  initial_actions STRING,
+  final_actions STRING,
+  // GSQL rejects DEFAULT FALSE on a BOOL attribute, so no default is set.
+  sar_filed BOOL,
+  sar_narrative STRING,
+  opened_at DATETIME,
+  anchor_time DATETIME,
+  written_at DATETIME,
+  query_bundle_version STRING,
+  scoring_version STRING,
+  policy_version STRING,
+  prompt_version STRING,
+  code_commit STRING,
+  // The validated answer, stored verbatim so the graph copy and the exported
+  // file can be compared byte for byte on read-back.
+  answer_json STRING,
+  memory_text STRING
+) WITH primary_id_as_attribute="true";
+
+// Policy, typology and regulatory text, chunked for retrieval. chunk_id is the
+// stable anchor an evidence ref cites, for example policy:R2 or
+// pattern:card_testing, so a retrieved chunk resolves to a real document
+// section rather than a paraphrase.
+CREATE VERTEX PolicyChunk (
+  PRIMARY_ID chunk_id STRING,
+  source_document STRING,
+  anchor STRING,
+  title STRING,
+  body STRING,
+  n_chars INT DEFAULT 0
+) WITH primary_id_as_attribute="true";
+
+// ---------------------------------------------------------------------------
+// Edges
+// ---------------------------------------------------------------------------
+
+CREATE DIRECTED EDGE OWNS (FROM Cardholder, TO PaymentCard) WITH REVERSE_EDGE="OWNED_BY";
+CREATE DIRECTED EDGE MADE (FROM PaymentCard, TO Transaction) WITH REVERSE_EDGE="MADE_BY";
+
+// Only created when signature_strength >= 2.
+CREATE DIRECTED EDGE FROM_DEVICE (FROM Transaction, TO DeviceProfile)
+  WITH REVERSE_EDGE="DEVICE_USED_IN";
+
+CREATE DIRECTED EDGE PURCHASER_EMAIL (FROM Transaction, TO EmailDomain)
+  WITH REVERSE_EDGE="PURCHASED_BY_DOMAIN";
+CREATE DIRECTED EDGE RECIPIENT_EMAIL (FROM Transaction, TO EmailDomain)
+  WITH REVERSE_EDGE="RECEIVED_BY_DOMAIN";
+CREATE DIRECTED EDGE BILLED_IN (FROM Transaction, TO BillingRegion)
+  WITH REVERSE_EDGE="BILLS";
+
+// Ordered within a card by (ts, txn_id). The txn_id tie-break makes the chain
+// deterministic when two transactions share a timestamp, so a reload cannot
+// produce a different sequence. gap_seconds is precomputed because burst and
+// card-testing detection reads it on every window query.
+CREATE DIRECTED EDGE NEXT (FROM Transaction, TO Transaction, gap_seconds INT)
+  WITH REVERSE_EDGE="PREVIOUS";
+
+CREATE DIRECTED EDGE CASE_INVOLVES (FROM ClosedCase, TO Transaction)
+  WITH REVERSE_EDGE="INVOLVED_IN_CASE";
+CREATE DIRECTED EDGE CASE_ON_CARD (FROM ClosedCase, TO PaymentCard)
+  WITH REVERSE_EDGE="CARD_HAS_CASE";
+CREATE DIRECTED EDGE CASE_CONNECTED_TO (FROM ClosedCase, TO PaymentCard)
+  WITH REVERSE_EDGE="CARD_CONNECTED_TO_CASE";
+
+CREATE DIRECTED EDGE INV_INVOLVES (FROM InvestigationCase, TO Transaction)
+  WITH REVERSE_EDGE="INVOLVED_IN_INVESTIGATION";
+CREATE DIRECTED EDGE INV_ON_CARD (FROM InvestigationCase, TO PaymentCard)
+  WITH REVERSE_EDGE="CARD_HAS_INVESTIGATION";
+CREATE DIRECTED EDGE INV_CONNECTED_TO (FROM InvestigationCase, TO PaymentCard)
+  WITH REVERSE_EDGE="CARD_CONNECTED_TO_INVESTIGATION";
+CREATE DIRECTED EDGE INV_USES_DEVICE (FROM InvestigationCase, TO DeviceProfile)
+  WITH REVERSE_EDGE="DEVICE_IN_INVESTIGATION";
+
+// The retrieval provenance an answer's similar_prior_cases must resolve to.
+CREATE DIRECTED EDGE INV_SIMILAR_TO (
+  FROM InvestigationCase, TO ClosedCase,
+  similarity DOUBLE, reasons STRING
+) WITH REVERSE_EDGE="SIMILAR_CASE_OF";
+
+// Which policy sections were actually cited, so an evidence ref can be checked
+// against the graph rather than against the model's word.
+CREATE DIRECTED EDGE INV_CITES_POLICY (FROM InvestigationCase, TO PolicyChunk)
+  WITH REVERSE_EDGE="POLICY_CITED_BY";
+
+// ---------------------------------------------------------------------------
+// Scope and naming
+// ---------------------------------------------------------------------------
+//
+// CREATE VERTEX always creates a GLOBAL type in TigerGraph, whatever graph the
+// session is scoped to. The graph is then composed from those global types.
+//
+// Two of the README's suggested names are therefore unavailable here: this
+// workspace ships with a starter kit that already owns global Customer and Card
+// vertex types. Rather than drop objects belonging to the workspace, the two
+// colliding types are renamed:
+//
+//     README "Customer" -> Cardholder
+//     README "Card"     -> PaymentCard
+//
+// Every other name follows the README. The rename is presentational only:
+// customer_id and card_id keep the dataset's own values, so nothing in an
+// answer file changes. Dropping the starter-kit globals would free the original
+// names if that is ever preferred.
+
+CREATE GRAPH HHGOAFraud (
+  Cardholder, PaymentCard, Transaction, DeviceProfile, EmailDomain,
+  BillingRegion, ClosedCase, InvestigationCase, PolicyChunk,
+  OWNS, MADE, FROM_DEVICE, PURCHASER_EMAIL, RECIPIENT_EMAIL, BILLED_IN, NEXT,
+  CASE_INVOLVES, CASE_ON_CARD, CASE_CONNECTED_TO,
+  INV_INVOLVES, INV_ON_CARD, INV_CONNECTED_TO, INV_USES_DEVICE,
+  INV_SIMILAR_TO, INV_CITES_POLICY
+);
