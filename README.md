@@ -6,7 +6,31 @@ The authoritative engineering contract is [HHGOA_FRAUD_INVESTIGATOR_BUILD_PLAN.m
 
 ## Current status
 
-Planning and challenge-alignment review are complete. Implementation has not started. The next action is Gate 0: repository, brief, and data contract.
+Gate 0 (repository, brief, and data contract) is complete and awaiting review.
+The dataset is audited, the card identifier mapping is proven against 14,975
+labelled links, and the answer contract is executable with 119 passing tests.
+
+Gate 1 (TigerGraph graph and vector foundation) is blocked only on TigerGraph
+credentials. See [PROGRESS.md](PROGRESS.md).
+
+## Getting started
+
+```bash
+python -m venv .venv
+.venv/Scripts/python -m pip install -e ".[dev]"   # Windows
+cp .env.example .env                              # then fill the TG_* values
+python scripts/bootstrap.py
+```
+
+Place the four supplied files and the dataset README in `data/raw/`; see
+[data/README.md](data/README.md). They are git-ignored and never committed.
+
+```bash
+python scripts/prove_card_mapping.py  # prove the derived card_id
+python scripts/run_data_audit.py      # write runs/data_audit.json
+python scripts/validate_all_cases.py  # the submission validation gate
+python -m pytest tests/ -q
+```
 
 ## Required platform path
 
