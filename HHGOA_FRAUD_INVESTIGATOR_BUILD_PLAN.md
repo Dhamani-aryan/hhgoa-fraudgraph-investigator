@@ -11,11 +11,212 @@ The implementation agent must read this entire file before creating code. It mus
 ## Deadline and delivery priority
 
 - Submission deadline: **24 September 2026 at 11:59 PM IST**.
+- One submission is allowed, by the team lead, with no resubmissions.
 - Current planning date: **22 September 2026**.
 - The project must optimize for a complete, testable submission rather than production-scale infrastructure.
 - The two most important judging categories are investigation accuracy and next-best-action quality. Together they account for 50% of the score.
 - A working batch runner that generates twenty valid case files is more important than an elaborate interface.
 - The interface must demonstrate the investigation clearly, but it must not delay the core pipeline.
+
+## Authority order and challenge compliance
+
+When requirements conflict, use this authority order:
+
+1. The official challenge brief, dataset README, supplied policy, supplied answer schema, and twenty-case instructions.
+2. The actual contents and identifiers in the supplied dataset.
+3. This implementation plan.
+4. External articles, repositories, examples, and framework conventions.
+
+External research may improve implementation but may never override the supplied policy, invent a field, import public IEEE-CIS fraud labels, change the answer format, or replace a required TigerGraph component.
+
+### Required challenge components and proof
+
+| Official requirement | Mandatory implementation | Proof required before submission |
+|---|---|---|
+| TigerGraph Savanna or Community Edition for graph and vector storage/retrieval | Use TigerGraph Savanna as the authoritative graph **and vector** store. Enable auto-stop and auto-start. Store graph entities, case memory, policy/typology chunks or case embeddings, and retrieve from TigerGraph at runtime. | Configuration screenshot, schema/vector-index artifact, successful load verification, and a demo trace showing graph traversal plus TigerGraph vector retrieval |
+| GSQL and TigerGraph graph algorithms | Implement versioned installed GSQL queries and use at least one TigerGraph graph algorithm in an investigation. The minimum algorithm is time-bounded WCC on a suspicious shared-origin subgraph; add cycle detection only if the data supports it. | Versioned GSQL files, integration tests, and one demo case explaining what the algorithm revealed |
+| TigerGraph MCP | Connect the investigation workflow to the official TigerGraph MCP server with a restricted tool surface. MCP is the primary agent-facing graph path. | MCP startup/configuration, served-tool inventory, logged successful call, and end-to-end trace |
+| GraphRAG | Retrieve connected graph evidence plus relevant case/policy text or vectors, build a compact cited context package, and give that package—not raw bulk data—to the LLM. | Saved context package, retrieval reasons, graph/vector references, and final claims resolving to evidence IDs |
+| User interface | Build an analyst-facing interface showing trigger, graph evidence, case progression, uncertainty, initial action, evidence request, final action, approvals, SAR, and case-memory write. | Working Streamlit view and 3–5 minute recorded demonstration |
+| Supplied HHGOA IEEE dataset | Read its README first; use the four supplied files, first-four-month closed cases as historical memory, and twenty final-two-month cases as the benchmark. | Dataset audit, manifest hashes/counts, identifier validation, and exactly twenty answer files |
+| Required case outputs | Produce the internal case record, evidence/findings/decisions/actions, graph write-back, conditional SAR, and next-best actions/routes both before and after added evidence. | Validator exits zero for all twenty; write/read-back receipts exist |
+
+The local TF-IDF retriever and direct installed-query adapter are development/emergency fallbacks only. They cannot be the path shown as the final hackathon implementation. The final demonstration and final twenty-case run must show TigerGraph graph retrieval, TigerGraph vector retrieval, GSQL/algorithm use, and TigerGraph MCP unless a documented platform outage is confirmed by organizers.
+
+### Judging alignment matrix
+
+| Criterion | Weight | What earns the score | Acceptance evidence |
+|---|---:|---|---|
+| Investigation accuracy | 25% | Causal transaction windows, robust per-card baselines, shared-entity paths, graph algorithm output, known/undocumented pattern detection, and explicit contradictory evidence | Historical replay/ablation report, golden cases, evidence-ledger trace, and human review of every low-confidence/high-exposure case |
+| Next best action | 25% | Deterministic policy, permissions/routes, initial versus final actions, decision-impact evidence requests, uncertainty-aware stopping, and action changes grounded in the response | R1–R10 tests, branch traces, route validator, three demo scenarios, and twenty valid outputs |
+| Case summary and explainability | 10% | Progressive case record, claim-level provenance, concise summary, uncertainty, supporting/contradicting evidence, SAR when required | Evidence ledger, JSON validation, readable dashboard, and SAR/action consistency tests |
+| Agentic design and engineering | 15% | Typed resumable workflow, bounded MCP tools, checkpoints, case memory, idempotent writes, approvals, budgets, and deterministic fallbacks | Architecture diagram, resume/failure tests, tool logs, write/read-back, and versioned traces |
+| Innovation | 15% | Contrastive case memory, temporal/leakage-safe graph evidence, decision-impact evidence gathering, memory-epoch isolation, and evidence independence | Working implementation visible in the demo—not slides or unimplemented design |
+| Demo quality and completeness | 10% | Clear end-to-end story showing graph, uncertainty, evidence gathering, action change, approval, SAR decision, and memory update | Rehearsed 3–5 minute recording using real project output and no manual result editing |
+
+The implementation order must protect the two 25% categories first. UI polish, embeddings, and extra integrations never take priority over investigation accuracy or next-best-action correctness.
+
+## What the project owner needs to learn
+
+You do not need to become a graph engineer before implementation. Spend at most 45 minutes learning the following vocabulary so you can review Opus and explain the demo:
+
+1. **Graph basics, 10 minutes:** a vertex is a thing such as a card, transaction, device, or case; an edge is a relationship; a path connects things; a connected component is a group linked through edges.
+2. **TigerGraph basics, 15 minutes:** the schema defines vertices/edges; a loading job imports CSVs; an installed GSQL query performs a safe repeatable traversal; a graph algorithm such as WCC finds connected groups; a vector index finds semantically similar cases/policy text.
+3. **Agent basics, 10 minutes:** the agent follows a state machine, calls bounded tools through MCP, records evidence, applies policy, may request more evidence, and stops when the decision is defensible.
+4. **Fraud-output basics, 10 minutes:** risk score is only a trigger; exposure is the verified suspicious amount; initial and final actions may differ; routes determine approval; a SAR is created only when policy requires it.
+
+Your job during development is not to review every line of GSQL. At each gate, verify five questions:
+
+- Does the output use real supplied IDs and only data available at that time?
+- Can every important claim point to graph, vector, policy, or simulated-response evidence?
+- Does policy code—not the LLM—control actions, routes, stopping, and SAR filing?
+- Did the tests and validation command actually run successfully?
+- Can the feature be shown clearly in the final demo?
+
+If any answer is “no,” do not approve that gate.
+
+## Master execution checklist and review gates
+
+Opus or any coding agent must execute these gates in order. It may continue within a gate autonomously, but it must stop after each gate and provide the review packet described below. The user will ask the primary engineer to inspect that checkpoint before continuing.
+
+### Gate 0 Repository, brief, and data contract
+
+- [ ] Read this complete plan, the official brief, and the dataset README before writing implementation code.
+- [ ] Create `PROGRESS.md`, `.env.example`, dependency metadata, and the agreed directory skeleton.
+- [ ] Record dataset file hashes, sizes, row counts, headers, time ranges, and the exact answer schema.
+- [ ] Prove the card/customer/transaction identifier mapping for all twenty benchmark cases.
+- [ ] Create Pydantic models and validators for the exact supplied answer format.
+- [ ] Run schema/validator tests on valid and invalid fixtures.
+
+**Gate 0 exit:** the data contract is proven, all twenty triggers resolve, and the answer schema is executable. No graph design assumption remains unverified.
+
+### Gate 1 TigerGraph graph and vector foundation
+
+- [ ] Configure Savanna with auto-stop/auto-start and document setup without committing credentials.
+- [ ] Finalize the graph schema only after Gate 0 audit results.
+- [ ] Prepare normalized, idempotent vertex/edge loading files and versioned loading jobs.
+- [ ] Load transactions, identities, customers/cards, shared entities, closed cases, and case-memory text.
+- [ ] Create the TigerGraph vector index/attributes for closed-case and policy/typology retrieval.
+- [ ] Reconcile expected versus loaded counts and run sampled path/vector searches.
+
+**Gate 1 exit:** one card traverses to its transactions/customer/device/region/history; one semantic query returns relevant prior-case or policy chunks from TigerGraph; rerunning the loader does not duplicate data.
+
+### Gate 2 GSQL, graph algorithms, MCP, and GraphRAG evidence
+
+- [ ] Implement and install all bounded, versioned GSQL queries in this plan with `as_of_ts` support.
+- [ ] Implement time-bounded WCC on suspicious shared-origin activity using a TigerGraph graph algorithm.
+- [ ] Add path/algorithm provenance, result caps, timeouts, and supernode controls.
+- [ ] Start TigerGraph MCP with only the required discovery/query/vector tools and log calls.
+- [ ] Implement `GraphToolPort` with MCP primary and normalized direct-query emergency fallback.
+- [ ] Implement hybrid GraphRAG: structural candidates plus TigerGraph vector reranking plus policy context.
+- [ ] Test every query, one MCP invocation, algorithm output, vector retrieval, and context-package citations.
+
+**Gate 2 exit:** a fixture case produces a compact evidence package through MCP containing structural graph evidence, graph-algorithm output, vector-retrieved memory/policy, negative evidence, and traceable IDs.
+
+### Gate 3 Deterministic investigation intelligence
+
+- [ ] Implement robust card baselines, temporal windows, pattern detectors, exposure, and graph features.
+- [ ] Implement the probability/calibration path and its documented conservative fallback.
+- [ ] Implement R1–R10, action permissions/routes, case/SAR rules, and stopping logic as deterministic code.
+- [ ] Implement evidence independence and decision-impact request selection.
+- [ ] Implement reproducible simulated customer/analyst/step-up responses.
+- [ ] Complete unit tests and temporal historical replay/ablation evaluation.
+
+**Gate 3 exit:** fraud, legitimate, and uncertain fixtures yield defensible probabilities/confidence, correct initial/final actions, correct approval routes, and no future evidence.
+
+### Gate 4 One perfect end-to-end case
+
+- [ ] Implement the typed LangGraph workflow, local durable checkpointing, budgets, retries, and idempotency.
+- [ ] Run one real benchmark-format case from trigger through GraphRAG evidence, assessment, evidence request if useful, final action, SAR decision, validation, graph write, and read-back.
+- [ ] Verify every summary/SAR assertion resolves to the evidence ledger.
+- [ ] Interrupt and resume the run to prove it does not duplicate calls, evidence, or writes.
+- [ ] Save the complete trace and promote the case structure—not its conclusions—to a golden fixture.
+
+**Gate 4 exit:** one case is genuinely submission-quality and reproducible end to end. Do not start the twenty-case batch before this gate passes review.
+
+### Gate 5 Frozen-memory twenty-case batch
+
+- [ ] Freeze the historical memory manifest and process the twenty cases without cross-case visibility.
+- [ ] Validate all provisional answers, then freeze the answer/configuration manifest.
+- [ ] Commit all twenty cases to TigerGraph, read them back, and export final answer files.
+- [ ] Run the full validator and manual-review table; resolve every SAR, undocumented pattern, high exposure, low confidence, and missing analogue flag.
+- [ ] Rerun in opposite case order and prove substantive invariance.
+- [ ] Produce exactly twenty accepted JSON files and the machine/human validation reports.
+
+**Gate 5 exit:** the validator exits zero, every case has a graph receipt, and the outputs are frozen. From this point, output-changing code requires rerunning the complete validation gate.
+
+### Gate 6 Dashboard and judged demonstration
+
+- [ ] Build the Streamlit dashboard around frozen real traces, not handcrafted demo data.
+- [ ] Show case progression, graph paths/WCC, TigerGraph vector memory, evidence for/against, probability history, policy/routing, action change, SAR, and write-back.
+- [ ] Curate three cases: clear graph fraud, legitimate false positive, and uncertain evidence-changing case.
+- [ ] Add failure-friendly table/text fallbacks when visualization is unavailable.
+- [ ] Rehearse and record a 3–5 minute end-to-end demo mapped to all six judging criteria.
+
+**Gate 6 exit:** a new viewer can understand trigger → evidence → uncertainty → request → action → explanation → memory update within five minutes.
+
+### Gate 7 Submission package and release
+
+- [ ] Confirm the working agent and public/accessible GitHub repository are ready.
+- [ ] Complete README, architecture diagram, setup/run commands, and limitations.
+- [ ] Finish the technical blog covering exactly: what was built, architecture, how TigerGraph is used, agentic capabilities, lessons learned, and what would be improved with more time.
+- [ ] Prepare the social post with blog/demo link and `@TigerGraphDB` tag.
+- [ ] Verify repository visibility, licenses/attributions, secrets scan, data exclusions, links, video permissions, and clean-clone reproduction.
+- [ ] Perform a final twenty-case rerun or checksum verification as appropriate and archive the release commit/tag.
+- [ ] Have the team lead verify every submission-form field before the one permitted submission.
+
+**Gate 7 exit:** every official deliverable exists, opens without private permissions, and corresponds to the same frozen release commit.
+
+### Official submission inventory
+
+- [ ] Working agent.
+- [ ] Accessible GitHub repository.
+- [ ] Twenty answer files, each containing the internal case, evidence, findings, decisions/actions, conditional SAR, initial next-best action/approval route, final next-best action/approval route, and successful graph write-back.
+- [ ] Three-to-five-minute end-to-end demo video.
+- [ ] Technical blog with all six required topics.
+- [ ] X or LinkedIn post linking to the blog or demo and tagging `@TigerGraphDB`.
+- [ ] Team lead has checked the form and links before the single irreversible submission.
+
+### Required review packet after every gate
+
+The coding agent must stop and report:
+
+- Gate and checklist items completed.
+- Commit hashes in chronological order.
+- Files added/changed and why.
+- Commands/tests executed with their actual results.
+- Screenshots or trace paths proving UI/TigerGraph behaviour when applicable.
+- Known limitations, assumptions, and blockers.
+- Exact next gate and first intended sub-step.
+
+No “done” claim is accepted without executed verification evidence.
+
+### Mandatory Git discipline for Opus and every coding agent
+
+Git history is part of the engineering evidence. Agents must preserve it as follows:
+
+1. Start every work session with `git status`, `git log --oneline -10`, and a read of `PROGRESS.md`.
+2. Make one atomic commit after every meaningful sub-step, not merely after a whole gate. Examples include schema creation, one loading job, one installed query family, one policy-rule set, one validator group, one workflow node group, or one dashboard view.
+3. A commit must contain only one coherent change and its directly related tests/documentation. Do not mix refactors, generated case outputs, UI work, and graph logic in one commit.
+4. Run the smallest relevant verification before committing. Never commit known-broken code unless the commit subject begins with `wip:` and the agent stops immediately for review; avoid WIP commits whenever possible.
+5. Use descriptive conventional subjects such as:
+   - `chore: scaffold local project and configuration`
+   - `test: lock exact answer contract`
+   - `feat(graph): add transaction and identity schema`
+   - `feat(gsql): add temporal card baseline query`
+   - `feat(retrieval): add TigerGraph vector case memory`
+   - `feat(policy): implement R1 through R5`
+   - `feat(agent): add evidence decision branch`
+   - `fix(validation): reject benchmark memory leakage`
+6. Include test evidence in the commit body when the change is non-trivial: command run and concise result.
+7. Update `PROGRESS.md` in the same commit that completes a checklist sub-step; do not create progress-only noise commits unless correcting the record.
+8. Push after every completed, passing gate and at least every few atomic commits during long gates so work is recoverable.
+9. Never commit `.env`, tokens, raw source data, large prepared data, local databases, private customer details, or temporary render/run artifacts.
+10. Never use `git commit --amend`, interactive rebase, squash, reset, force-push, or history rewriting after a commit has been shared unless the user explicitly authorizes it. Fix mistakes with a new commit so the review trail remains intact.
+11. Do not stage unrelated user changes. Before each commit, inspect `git diff --staged` and list the files being committed.
+12. Tag the final frozen submission commit as `hhgoa-submission-v1` only after Gate 7 passes.
+
+Suggested commit granularity is 3–8 focused commits per gate. The goal is a reviewable engineering trail, not one commit per keystroke or a single giant gate commit.
 
 ## Executive decision
 
@@ -61,8 +262,9 @@ The following decisions are mandatory because they materially improve correctnes
 ### Tier 0: submission-critical
 
 - Audit and normalize the four supplied files.
-- Load the core graph and historical cases.
-- Install bounded GSQL queries.
+- Load the core graph, historical cases, and a minimal TigerGraph vector index.
+- Install bounded GSQL queries and time-bounded WCC.
+- Connect the agent through TigerGraph MCP and assemble GraphRAG context from graph, vector, and policy evidence.
 - Investigate and validate all twenty benchmark cases.
 - Apply R1-R10 and routes deterministically.
 - Produce initial/final actions, simulated evidence when justified, SAR decisions, graph write receipts, and twenty valid JSON files.
@@ -80,7 +282,6 @@ The following decisions are mandatory because they materially improve correctnes
 
 - FastRP structural embeddings.
 - Community detection beyond a bounded suspicious subgraph.
-- Native TigerGraph vector retrieval if the index is already operational.
 - Rich graph animation, streaming ingestion, or general natural-language graph chat.
 
 If a Tier 2 item threatens Tier 0 or Tier 1, delete it from the build without further discussion.
@@ -588,7 +789,7 @@ For every result return a reason vector such as `same_new_device`, `similar_velo
 
 During closed-case replay, use leave-one-case-out retrieval. During the twenty-case benchmark, freeze the historical index before the first case runs.
 
-If TigerGraph 4.2+ vector search is working, it may rerank case narratives. If not, fall back to TF-IDF/feature cosine locally without changing the rest of the pipeline. The graph traversal remains authoritative in both modes.
+TigerGraph 4.2+ vector search must rerank the compact closed-case/policy candidate set in the final implementation. During local development or a temporary service outage, TF-IDF/feature cosine may exercise the same interface, but it does not satisfy the final challenge gate. The graph traversal remains authoritative; vector similarity supplies case/policy relevance rather than factual proof.
 
 ### Evidence ledger
 
@@ -1273,6 +1474,7 @@ Deliverables:
 - TigerGraph schema.
 - Prepared vertex/edge CSVs.
 - Loading jobs.
+- Closed-case and policy/typology vector preparation plus TigerGraph vector index.
 - Idempotent ingestion command.
 - Verification report containing counts and sampled traversals.
 
@@ -1280,6 +1482,7 @@ Exit criteria:
 
 - Expected vertex/edge counts reconcile with prepared data.
 - One card can be traversed to its transactions, devices, region, customer, and historical cases.
+- One TigerGraph vector query retrieves a relevant closed case or policy chunk with its source ID.
 - Re-running ingestion does not duplicate data.
 
 ### Phase 3 Investigation queries
@@ -1287,6 +1490,7 @@ Exit criteria:
 Deliverables:
 
 - Nine installed queries, including temporal graph features.
+- Time-bounded WCC graph-algorithm wrapper/query and provenance output.
 - Python normalizers.
 - Integration tests.
 - Bounded result schemas.
@@ -1297,6 +1501,7 @@ Exit criteria:
 - Missing entities return useful errors rather than empty unexplained output.
 - Exposure calculation matches local calculation.
 - Every query respects `as_of_ts`, bounded row counts, and benchmark-memory exclusion.
+- WCC is verified on a small known suspicious-component fixture.
 
 ### Phase 4 Deterministic analytics and policy
 
@@ -1324,7 +1529,7 @@ Deliverables:
 
 - LangGraph state and nodes.
 - TigerGraph MCP integration.
-- Grounded context builder.
+- Grounded GraphRAG context builder combining structural GSQL, WCC, TigerGraph vector memory, and policy evidence.
 - Assessment and SAR prompts.
 - Simulated evidence path.
 - Per-case run trace.
@@ -1413,7 +1618,7 @@ The implementation agent should work in this order and must not polish later pha
 - Load core vertices/edges.
 - Install and verify core queries.
 - Use prepared CSV/loading jobs rather than row-by-row upserts. The transaction file is larger than the default 200 MB REST request limit; split prepared files into safe chunks or load through the Savanna data-loading workflow.
-- Kill criterion: if advanced vector/community features are not operational in thirty minutes after core queries work, defer them.
+- Kill criterion: if advanced embeddings or broad community features are not operational in thirty minutes after core queries work, defer them. Do not defer the minimal TigerGraph closed-case/policy vector index or the bounded WCC requirement.
 
 ### Block C One perfect case
 
@@ -1502,7 +1707,7 @@ Flag for deeper review:
 | Risk score copied into verdict | Ablation/contribution report | Cap risk-score influence and compare behaviour/graph evidence |
 | Case retrieval confirmation bias | Retrieved outcomes lack diversity | Force fraud/cleared contrast when candidates exist |
 | Batch order changes answers | Opposite-order replay | Freeze memory epoch and use two-pass commit |
-| Vector service unavailable | Startup capability test | Use deterministic structured/TF-IDF reranker |
+| Vector service temporarily unavailable during development | Startup capability test | Use deterministic structured/TF-IDF reranker to continue interface work, then restore and verify TigerGraph vector retrieval before Gate 2 can pass |
 | MCP unavailable or bloated tool context | MCP smoke test and served-tool inventory | Use restricted tool subset; switch normalized reads to tested installed-query fallback |
 | LLM emits invalid JSON | Pydantic validation | One repair attempt, then deterministic template fallback |
 | Agent loops or repeats expensive calls | Tool budget/idempotency trace | Stop at budget and complete via deterministic path |
@@ -1554,8 +1759,11 @@ The project is complete only when every item below is true:
 - [ ] All twenty benchmark IDs resolve to source data.
 - [ ] TigerGraph schema and loading jobs are versioned locally.
 - [ ] Core graph data is loaded and verified.
+- [ ] TigerGraph vector index contains closed-case and policy/typology memory and is used in the final runtime.
 - [ ] All required GSQL queries are installed and tested.
+- [ ] Time-bounded WCC runs as a TigerGraph graph algorithm and contributes evidence to at least one qualifying investigation/demo case.
 - [ ] TigerGraph MCP is connected with a restricted tool set.
+- [ ] GraphRAG context combines connected graph evidence, TigerGraph vector retrieval, and relevant policy context with claim-level references.
 - [ ] Pattern detectors and probability engine are tested.
 - [ ] Historical replay uses a strict temporal split and produces an ablation/calibration report.
 - [ ] Every runtime evidence item passes the temporal-cutoff check and has ledger provenance.
@@ -1578,6 +1786,7 @@ The project is complete only when every item below is true:
 - [ ] Blog post is complete or ready to publish.
 - [ ] Social post draft is ready.
 - [ ] Repository contains no secrets or raw dataset files.
+- [ ] Git history contains atomic sub-step commits and a review packet for every completed master gate.
 - [ ] Submission checklist has been reviewed by a human.
 
 ## Rules for any coding agent executing this plan
@@ -1585,7 +1794,7 @@ The project is complete only when every item below is true:
 1. Read the entire plan before editing files.
 2. Inspect existing work before creating replacements.
 3. Preserve user changes and never destroy working code to simplify implementation.
-4. Work phase by phase and run the relevant tests at every exit gate.
+4. Work gate by gate and run the relevant tests at every exit condition.
 5. Update checkboxes and maintain a short `PROGRESS.md` containing completed work, current blocker, next action, and verification commands.
 6. Do not claim completion based only on code generation. Run commands and verify outputs.
 7. Do not invent dataset mappings, entity IDs, query results, or successful graph writes.
@@ -1597,13 +1806,17 @@ The project is complete only when every item below is true:
 13. Never place secrets in source files, logs, tests, screenshots, or documentation.
 14. Keep all project-specific requirements and generated documentation inside this directory.
 15. Before handing work back, state exactly what was built, what was verified, what remains, and the next command to run.
+16. Follow the mandatory Git discipline: atomic commit after every meaningful sub-step, progress update in the same commit, no history rewriting, and push passing gates.
+17. Stop after each master gate and return its review packet. Do not begin the next gate until the user or primary engineer approves continuation.
+18. The official required TigerGraph components are not optional: graph and vector storage/retrieval, GSQL, a TigerGraph graph algorithm, TigerGraph MCP, GraphRAG, and a user interface must all be implemented and demonstrated.
+19. Additional libraries may support preprocessing, orchestration, testing, or presentation, but they may not replace TigerGraph in any required role.
 
 ## First prompt for an implementation agent
 
 Use the following prompt when handing this directory to Opus, Codex Cloud, or another coding agent:
 
 ```text
-Read HHGOA_FRAUD_INVESTIGATOR_BUILD_PLAN.md completely, including the temporal/leakage contract, delivery tiers, failure modes, and research register. Treat it as the implementation contract. Inspect the current repository and continue from the first incomplete phase. Keep all project files inside this directory. Do not redesign the product or add out-of-scope infrastructure. Implement one phase at a time, run its verification commands, update PROGRESS.md and the Definition of Done checkboxes, and continue while safe progress is possible. Never invent dataset identifiers, calibration quality, graph results, or successful writes. Deterministic code must control temporal cutoffs, evidence provenance, probability features, policy R1-R10, approval routing, exposure, stopping rules, and output validation. Use TigerGraph MCP as the primary agent interface with the tested installed-query fallback returning the same schema. Prioritize one perfect vertical slice, then the frozen-memory two-pass twenty-case batch, then UI polish. Enforce the kill criteria: defer embeddings, community algorithms, and extra frameworks when they threaten the batch. If credentials or source data are missing, finish all independent local work and report the exact blocker and next command.
+Read HHGOA_FRAUD_INVESTIGATOR_BUILD_PLAN.md completely, including the authority order, official-component matrix, judging matrix, master gates, temporal/leakage contract, Git discipline, failure modes, and research register. Treat it as the implementation contract. Inspect `git status`, recent commits, and PROGRESS.md before editing. Continue from the first incomplete master gate and keep all project files inside this directory. Do not redesign the product or add out-of-scope infrastructure. Complete one meaningful sub-step at a time, run its relevant verification, update PROGRESS.md/checklists, inspect the staged diff, and create an atomic descriptive commit. Never amend, squash, reset, rebase, or force-push shared history. Never invent dataset identifiers, calibration quality, graph results, or successful writes. Deterministic code must control temporal cutoffs, evidence provenance, probability features, policy R1-R10, approval routing, exposure, stopping rules, and output validation. The final implementation must use TigerGraph for graph and vector storage/retrieval, versioned GSQL, at least time-bounded WCC as a TigerGraph graph algorithm, TigerGraph MCP as the agent-facing graph path, GraphRAG grounded in graph/vector/policy evidence, and a working UI. Additional tools may support but not replace these required components. Prioritize one perfect vertical slice, then the frozen-memory two-pass twenty-case batch, then UI polish. Defer non-required embeddings, broad community analysis, and extra frameworks when they threaten the batch. Stop after the current master gate and return the required review packet with commit hashes and actual test results; do not start the next gate until approved. If credentials or source data are missing, finish all independent work within the current gate and report the exact blocker and next command.
 ```
 
 ## Final product statement
