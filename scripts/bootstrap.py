@@ -43,7 +43,9 @@ def check_env() -> list[str]:
     """Report which required variables are unset without revealing any value."""
     import os
 
-    return [f"unset environment variable: {name}" for name in REQUIRED_ENV_VARS if not os.getenv(name)]
+    return [
+        f"unset environment variable: {name}" for name in REQUIRED_ENV_VARS if not os.getenv(name)
+    ]
 
 
 def main() -> int:
