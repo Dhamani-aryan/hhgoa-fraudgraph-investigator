@@ -222,6 +222,32 @@ by the cutoff.
   unavailable and the session keeps serving. 50 unit tests with fake
   transports, 17 live MCP tests.
 
+### Gate 2F complete feature vector
+
+`evidence/collector.py` runs a case's nine structural queries through any
+GraphToolPort in a fixed order; `evidence/feature_assembler.py` composes them
+into one vector of 66 named features, each with a state (`available`,
+`withheld`, `refused`, `not_applicable`, `unavailable`), its source query and a
+reason. Withheld, refused and missing values are `None`, never 0 or False.
+Robust amount statistics (`scoring/robust_baselines.py`): median, MAD,
+0.6745-scaled robust deviation, mid-rank empirical percentile, with a zero MAD
+reported as `zero_mad` and no deviation. Two-hop reach is derived only from
+returned WCC segments. The candidate episode (flagged transaction plus
+same-card, same-channel transactions in the 48 h before it) is costed by
+`calculate_case_exposure_v1` and checked against the local sum of the window
+rows. Every source timestamp is checked against the anchor.
+
+Fixture choice, measured: of the twenty benchmark triggers, HHG-017's WCC
+component is isolated (its device reaches 70 cards in the window, above the
+5-card threshold) and its device is refused as a supernode (164 cards to the
+cutoff). HHG-019 joins a six-card component through device 617deda1f7ea4b99,
+with every other member carrying confirmed fraud and five path segments, so
+HHG-019 is the Gate 2 exit fixture and HHG-017 the withheld/isolated fixture.
+Live through MCP: HHG-019 costs nine structural calls, passes the leakage
+check with `data_max_time` equal to the anchor, and a review at 2016-12-31
+returns identical features. HHG-017's episode is 3450436, 3450503, 3450629 for
+$300.14, agreeing with the local sum. 29 unit and 11 live tests.
+
 ### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while
