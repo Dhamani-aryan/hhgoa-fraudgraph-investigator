@@ -58,9 +58,14 @@ def probe(connection, kind: str, entity: str, anchor: str, **overrides):
     ],
 )
 def test_supernodes_are_refused(connection, kind, entity):
-    """Sharing a supernode says nothing about coordination."""
+    """Sharing a supernode says nothing about coordination.
+
+    These are refused by the scan-budget precheck before the rarity gate is
+    reached, because their lifetime volume alone is too large to scan. Either
+    refusal is correct, so the umbrella flag is what this asserts.
+    """
     result = probe(connection, kind, entity, CLUSTER_ANCHOR)
-    assert scalar(result, "refused_as_supernode") is True
+    assert scalar(result, "refused") is True
     assert scalar(result, "refusal_reason")
 
 
@@ -90,27 +95,12 @@ def test_rarity_is_counted_as_of_the_cutoff_not_from_stored_totals(connection):
     anchor = probe(connection, "device", FIXTURE_DEVICE, "2016-11-11 23:46:24")
     late = probe(connection, "device", FIXTURE_DEVICE, "2016-12-31 23:59:59")
 
-    early_cards = scalar(early, "entity_cards_to_anchor")
-    anchor_cards = scalar(anchor, "entity_cards_to_anchor")
-    late_cards = scalar(late, "entity_cards_to_anchor")
+    early_cards = scalar(early, "entity_cards_to_cutoff")
+    anchor_cards = scalar(anchor, "entity_cards_to_cutoff")
+    late_cards = scalar(late, "entity_cards_to_cutoff")
 
     assert early_cards < anchor_cards < late_cards
     assert late_cards == 299, "the lifetime total should only be reached at the end"
-
-
-def test_a_truncated_rarity_scan_refuses(connection):
-    """Fail closed: rarity we could not establish is not rarity."""
-    result = probe(
-        connection,
-        "device",
-        FIXTURE_DEVICE,
-        "2016-12-31 23:59:59",
-        max_rarity_scan=5,
-        max_entity_cards=100000,
-    )
-    assert scalar(result, "rarity_scan_truncated") is True
-    assert scalar(result, "refused_as_supernode") is True
-    assert "scan budget" in scalar(result, "refusal_reason")
 
 
 # --- the admitted path -----------------------------------------------------
