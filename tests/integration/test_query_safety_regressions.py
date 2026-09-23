@@ -11,11 +11,14 @@ clone without credentials.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pytest
 
 from graph.client import TigerGraphConfigError, connect, load_config
 from graph.result_normalizers import rows, scalar
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 #: A device with a genuine time-local multi-card cluster: 40 cards overall,
 #: 49 transactions, active only in July 2016.
@@ -259,3 +262,134 @@ def test_case_context_skips_an_over_budget_device_scan(connection):
     # The rest of the context is still returned.
     assert rows(result, "flagged_transaction")
     assert scalar(result, "card_transactions_to_anchor") == 53
+
+
+# --- case context: evidence is a property of the case, not of when we look ---
+
+
+#: Review cutoffs later than the flagged transaction on HHG-017.
+CONTEXT_LATER_CUTOFFS = (
+    "2016-11-12 00:46:24",
+    "2016-12-01 00:00:00",
+    "2016-12-31 23:59:59",
+)
+
+#: Keys that legitimately echo the request rather than describing evidence.
+REQUEST_ECHO_KEYS = {"as_of_ts", "scan_row_budget"}
+
+
+def case_context(connection, *, as_of: str, txn: str = FLAGGED_TXN, **overrides):
+    params = {"flagged_txn_id": txn, "as_of_ts": as_of}
+    params.update(overrides)
+    return connection.runInstalledQuery("get_case_context_v1", params=params)
+
+
+def _evidence(result) -> dict:
+    """Everything the query returned except the echoed request parameters."""
+    from graph.result_normalizers import normalize_result
+
+    return {
+        key: value
+        for key, value in normalize_result(result).items()
+        if key not in REQUEST_ECHO_KEYS
+    }
+
+
+@pytest.mark.parametrize("later", CONTEXT_LATER_CUTOFFS)
+def test_case_context_evidence_is_identical_at_a_later_review(connection, later):
+    """Moving as_of_ts past the flagged transaction must change nothing.
+
+    The bound is min(flagged ts, as_of_ts), so a later review cannot widen the
+    card, cardholder, device, adjacent or prior-case traversals.
+    """
+    at_anchor = _evidence(case_context(connection, as_of=ANCHOR))
+    reviewed_later = _evidence(case_context(connection, as_of=later))
+
+    assert at_anchor, "the fixture case should return evidence to compare"
+    assert reviewed_later == at_anchor, {
+        key
+        for key in set(at_anchor) | set(reviewed_later)
+        if at_anchor.get(key) != reviewed_later.get(key)
+    }
+
+
+def test_case_context_effective_cutoff_pins_to_the_flagged_transaction(connection):
+    result = case_context(connection, as_of="2016-12-31 23:59:59")
+    assert scalar(result, "effective_cutoff") == ANCHOR
+
+
+@pytest.mark.parametrize(
+    "block",
+    ["adjacent_transactions", "prior_cases_on_card"],
+)
+def test_case_context_rows_never_exceed_the_effective_cutoff(connection, block):
+    result = case_context(connection, as_of="2016-12-31 23:59:59")
+    effective = scalar(result, "effective_cutoff")
+    field = "ts" if block == "adjacent_transactions" else "closed_at"
+    for item in rows(result, block):
+        assert item[field] <= effective
+
+
+def test_case_context_refuses_an_unknown_transaction(connection):
+    result = case_context(connection, as_of=ANCHOR, txn="9999999999")
+    assert scalar(result, "refused") is True
+    assert scalar(result, "flagged_not_found") is True
+    assert rows(result, "flagged_transaction") == []
+
+
+# --- card baseline: the amount list has a truthful bound --------------------
+
+
+def baseline(connection, *, card: str = CARD, as_of: str = ANCHOR, **overrides):
+    params = {"card_id": card, "as_of_ts": as_of}
+    params.update(overrides)
+    return connection.runInstalledQuery("get_card_baseline_v1", params=params)
+
+
+def test_baseline_amounts_match_the_counted_transactions(connection):
+    """A truncated list would give a median and MAD for a half-read card."""
+    result = baseline(connection)
+    assert scalar(result, "scan_skipped") is False
+    amounts = scalar(result, "amounts_to_anchor")
+    assert len(amounts) == scalar(result, "n_transactions_to_anchor") == 53
+
+
+def test_baseline_refuses_rather_than_returning_a_partial_history(connection):
+    """Over budget must yield no baseline at all, not a silently short one."""
+    result = baseline(connection, max_scan_rows=1)
+    assert scalar(result, "scan_skipped") is True
+    assert scalar(result, "amounts_to_anchor") is None
+    assert scalar(result, "n_transactions_to_anchor") is None
+    assert scalar(result, "skip_reason")
+
+
+def test_baseline_budget_is_what_decides(connection):
+    over = baseline(connection, max_scan_rows=1)
+    under = baseline(connection, max_scan_rows=20000)
+    assert scalar(over, "scan_skipped") is True
+    assert scalar(under, "scan_skipped") is False
+
+
+def test_baseline_precheck_is_a_resource_figure_not_evidence(connection):
+    """The lifetime count gates the scan; the as-of count is the evidence."""
+    result = baseline(connection)
+    assert scalar(result, "precheck_lifetime_transactions") == 59
+    assert scalar(result, "n_transactions_to_anchor") == 53
+
+
+def test_baseline_default_budget_admits_every_card_in_this_dataset(connection):
+    """The largest card holds 14,891 transactions against a 20,000 default.
+
+    Asserted on the real maximum so the documented contract cannot drift from
+    the data it claims to cover.
+    """
+    import polars as pl
+
+    cards = pl.read_csv(
+        PROJECT_ROOT / "data" / "prepared" / "payment_cards.csv",
+        has_header=False,
+        infer_schema_length=0,
+    )
+    largest = cards.select(pl.col("column_9").cast(pl.Int64)).max().item()
+    assert largest == 14891
+    assert largest < 20000
