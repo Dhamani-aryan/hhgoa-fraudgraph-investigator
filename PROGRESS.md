@@ -10,22 +10,42 @@ Gate 1 is complete and its six review findings are fixed.
 
 - [x] Gate 2A query corrections: effective cutoff, region admissibility, and
       bounding that actually bounds.
-- [x] Bounded, versioned GSQL queries with `as_of_ts` support — 6 of 9 done:
-      `get_case_context_v1`, `get_transaction_window_v1`,
-      `calculate_case_exposure_v1`, `get_card_baseline_v1`,
-      `find_region_anomalies_v1`, `find_shared_origin_activity_v1`,
-      plus `find_similar_closed_cases_v1` and `find_policy_chunks_v1` from
-      Gate 1. Eight installed.
-- [ ] `extract_temporal_graph_features_v1`
-- [ ] `write_investigation_case_v1` with read-back
-- [ ] Time-bounded WCC as a TigerGraph graph algorithm
-- [ ] Path and algorithm provenance
+- [x] All nine required bounded GSQL queries, plus three supporting ones —
+      twelve installed and verified from the catalog:
+      `get_case_context_v1`, `get_card_baseline_v1`,
+      `get_transaction_window_v1`, `find_shared_origin_activity_v1`,
+      `find_region_anomalies_v1`, `find_similar_closed_cases_v1`,
+      `extract_temporal_graph_features_v1`, `calculate_case_exposure_v1`,
+      `write_investigation_case_v1`, plus `read_investigation_case_v1`,
+      `find_policy_chunks_v1` and `wcc_shared_origin_v1`.
+- [x] Time-bounded WCC as a graph algorithm (`wcc_shared_origin_v1`).
+- [x] Path and algorithm provenance: every WCC member carries the devices that
+      joined it and the hop it was reached at.
+- [x] Case write-back with a read-back receipt, idempotent on rerun.
 - [ ] TigerGraph MCP with a restricted tool surface, and a served-tool inventory
 - [ ] `GraphToolPort`: MCP primary, normalized direct-query fallback
 - [ ] GraphRAG evidence-package builder and citation tests
 - [ ] Gate 2 exit: a fixture case producing an evidence package through MCP
 
-### Gate 2 leakage findings, fixed
+### Gate 2B findings
+
+6. **The query installer reported a failed install as success.** Its check
+   accepted any transcript containing "install", and TigerGraph's failure
+   message is "Query installation failed!".
+   `write_investigation_case_v1` sat in DRAFT with a semantic error, was
+   reported installed, and returned 404 at runtime because a draft query has no
+   REST endpoint. Installation status is now read from the catalog, which
+   states it outright. An audit of the whole bundle found only that one query
+   affected.
+7. **The WCC component cap did not cap.** It is tested after each hop, so a
+   single hop overshot it — 668 cards against a stop value of 200. Renamed
+   `stop_expanding_above` and documented as a stop condition; the real per-hop
+   bound is the device threshold.
+8. **Case write edges are additive.** Re-writing with fewer identifiers leaves
+   the earlier edges, because an upsert cannot know what was withdrawn.
+   Documented and pinned by a test rather than described as full idempotence.
+
+### Gate 2 leakage findings, fixed### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while
 handing the investigator information from after the alert:
