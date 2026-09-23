@@ -1,0 +1,165 @@
+// write_investigation_case_v1
+//
+// The ONE write path in this project. Everything else reads.
+//
+// It upserts an InvestigationCase vertex and its evidence relationships, then
+// returns the stored vertex so the caller can compare what the graph holds with
+// what it sent. An answer may only set written_to_graph=true after that
+// comparison succeeds: the challenge asks for a case written to the graph, and
+// a write that reports success without being read back is a claim, not a
+// receipt.
+//
+// ---------------------------------------------------------------------------
+// IDEMPOTENCE
+// ---------------------------------------------------------------------------
+// Keyed on case_id. Rerunning with the same case overwrites the same vertex and
+// re-asserts the same edges rather than creating duplicates, so a retried or
+// resumed run converges instead of accumulating. Verified by writing the same
+// case four times: the edge counts do not move.
+//
+// One honest limit. Edges are ADDITIVE. Re-writing a case with a SMALLER set of
+// identifiers leaves the earlier edges in place, because an upsert asserts what
+// it is given and cannot know what was withdrawn. Gate 5's two-pass batch
+// writes each frozen case once, so this does not arise there. A corrected rerun
+// that removes evidence must delete the InvestigationCase vertex first, and
+// anything relying on the edges to mirror the answer exactly must do the same.
+//
+// ---------------------------------------------------------------------------
+// MEMORY EPOCH
+// ---------------------------------------------------------------------------
+// memory_epoch is stored on the vertex, not inferred. The twenty benchmark
+// cases share one epoch and must stay invisible to prior-case retrieval until
+// every answer is frozen, otherwise case seventeen could cite case three and
+// the batch would depend on the order it ran in. Storing the epoch is what lets
+// retrieval exclude it.
+//
+// The version fields make a replay auditable: an output can be traced to the
+// query bundle, scoring and policy that produced it, and a superseded run can
+// be identified rather than silently overwritten.
+
+CREATE QUERY write_investigation_case_v1(
+  STRING case_id,
+  STRING memory_epoch,
+  STRING status,
+  STRING verdict,
+  DOUBLE fraud_probability,
+  STRING pattern,
+  STRING pattern_description,
+  DOUBLE exposure_usd,
+  STRING first_suspicious_txn_id,
+  STRING summary,
+  STRING stop_reason,
+  STRING initial_actions,
+  STRING final_actions,
+  BOOL sar_filed,
+  STRING sar_narrative,
+  STRING opened_at,
+  STRING anchor_time,
+  STRING query_bundle_version,
+  STRING scoring_version,
+  STRING policy_version,
+  STRING prompt_version,
+  STRING code_commit,
+  STRING answer_json,
+  STRING memory_text,
+  SET<STRING> affected_txn_ids,
+  SET<STRING> connected_card_ids,
+  SET<STRING> device_profile_ids,
+  SET<STRING> similar_case_ids,
+  SET<STRING> policy_chunk_ids,
+  STRING on_card_id = ""
+) FOR GRAPH HHGOAFraud {
+  SumAccum<INT> @@txn_edges, @@card_edges, @@device_edges;
+  SumAccum<INT> @@similar_edges, @@policy_edges, @@on_card_edges;
+  SetAccum<STRING> @@matched_txn_ids, @@matched_card_ids, @@matched_case_ids;
+
+  // The vertex. INSERT on an existing primary id updates it, which is what
+  // makes a rerun converge rather than duplicate.
+  INSERT INTO InvestigationCase VALUES (
+    case_id,
+    memory_epoch,
+    status,
+    verdict,
+    fraud_probability,
+    pattern,
+    pattern_description,
+    exposure_usd,
+    first_suspicious_txn_id,
+    summary,
+    stop_reason,
+    initial_actions,
+    final_actions,
+    sar_filed,
+    sar_narrative,
+    to_datetime(opened_at),
+    to_datetime(anchor_time),
+    now(),
+    query_bundle_version,
+    scoring_version,
+    policy_version,
+    prompt_version,
+    code_commit,
+    answer_json,
+    memory_text
+  );
+
+  // Evidence relationships. Each is asserted only for identifiers that exist,
+  // so a typo cannot create a dangling edge to a vertex that was never loaded.
+  TXNS = {Transaction.*};
+  affected = SELECT t FROM TXNS:t WHERE affected_txn_ids.contains(t.txn_id)
+    ACCUM
+      INSERT INTO INV_INVOLVES VALUES (case_id, t),
+      @@matched_txn_ids += t.txn_id,
+      @@txn_edges += 1;
+
+  CARDS = {PaymentCard.*};
+  connected = SELECT c FROM CARDS:c WHERE connected_card_ids.contains(c.card_id)
+    ACCUM
+      INSERT INTO INV_CONNECTED_TO VALUES (case_id, c),
+      @@matched_card_ids += c.card_id,
+      @@card_edges += 1;
+
+  on_card = SELECT c FROM CARDS:c WHERE c.card_id == on_card_id
+    ACCUM
+      INSERT INTO INV_ON_CARD VALUES (case_id, c),
+      @@on_card_edges += 1;
+
+  DEVICES = {DeviceProfile.*};
+  devices = SELECT d FROM DEVICES:d WHERE device_profile_ids.contains(d.device_id)
+    ACCUM
+      INSERT INTO INV_USES_DEVICE VALUES (case_id, d),
+      @@device_edges += 1;
+
+  // Retrieval provenance: the prior cases actually used, so validator rule R09
+  // can check a citation against the graph rather than against the answer.
+  CLOSED = {ClosedCase.*};
+  similar = SELECT k FROM CLOSED:k WHERE similar_case_ids.contains(k.case_id)
+    ACCUM
+      INSERT INTO INV_SIMILAR_TO VALUES (case_id, k, 0.0, ""),
+      @@matched_case_ids += k.case_id,
+      @@similar_edges += 1;
+
+  CHUNKS = {PolicyChunk.*};
+  cited = SELECT p FROM CHUNKS:p WHERE policy_chunk_ids.contains(p.chunk_id)
+    ACCUM
+      INSERT INTO INV_CITES_POLICY VALUES (case_id, p),
+      @@policy_edges += 1;
+
+  PRINT case_id AS case_id;
+  PRINT @@txn_edges AS affected_txn_edges_written;
+  PRINT @@card_edges AS connected_card_edges_written;
+  PRINT @@on_card_edges AS on_card_edges_written;
+  PRINT @@device_edges AS device_edges_written;
+  PRINT @@similar_edges AS similar_case_edges_written;
+  PRINT @@policy_edges AS policy_chunk_edges_written;
+
+  // Identifiers that matched no vertex, reported rather than swallowed: an
+  // answer citing an id the graph does not hold must fail validation, not
+  // quietly lose an edge.
+  PRINT (affected_txn_ids MINUS @@matched_txn_ids) AS unmatched_txn_ids;
+  PRINT (connected_card_ids MINUS @@matched_card_ids) AS unmatched_card_ids;
+  PRINT (similar_case_ids MINUS @@matched_case_ids) AS unmatched_case_ids;
+  PRINT affected_txn_ids.size() AS affected_txn_ids_requested;
+  PRINT connected_card_ids.size() AS connected_card_ids_requested;
+  PRINT similar_case_ids.size() AS similar_case_ids_requested;
+}

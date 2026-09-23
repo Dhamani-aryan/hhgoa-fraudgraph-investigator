@@ -1,0 +1,185 @@
+"""The single write path and its read-back receipt.
+
+The challenge requires each case to be written to the graph, and the answer
+contract only permits written_to_graph=true after a successful read-back. These
+tests exercise that round trip against the live graph and clean up after
+themselves, so the benchmark memory epoch is never polluted by a fixture.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from graph.client import TigerGraphConfigError, connect, load_config
+from graph.result_normalizers import rows, scalar
+
+WRITE = "write_investigation_case_v1"
+READ = "read_investigation_case_v1"
+
+#: Deliberately outside the benchmark memory epoch.
+TEST_CASE_ID = "TEST-CASE-WRITE-ROUNDTRIP"
+TEST_EPOCH = "test_epoch_not_the_benchmark"
+
+
+def payload(**overrides) -> dict:
+    base = {
+        "case_id": TEST_CASE_ID,
+        "memory_epoch": TEST_EPOCH,
+        "status": "closed_fraud",
+        "verdict": "fraud",
+        "fraud_probability": 0.86,
+        "pattern": "card_testing",
+        "pattern_description": "",
+        "exposure_usd": 300.14,
+        "first_suspicious_txn_id": "3450436",
+        "summary": "Round trip fixture.",
+        "stop_reason": "fixture",
+        "initial_actions": "VERIFY_WITH_CUSTOMER",
+        "final_actions": "BLOCK_CARD|CREATE_CASE",
+        "sar_filed": False,
+        "sar_narrative": "",
+        "opened_at": "2016-11-12 00:46:24",
+        "anchor_time": "2016-11-11 23:46:24",
+        "query_bundle_version": "v1",
+        "scoring_version": "v1",
+        "policy_version": "1.0",
+        "prompt_version": "v1",
+        "code_commit": "fixture",
+        "answer_json": "{}",
+        "memory_text": "round trip fixture memory",
+        "affected_txn_ids": ["3450436", "3450503", "3450629"],
+        "connected_card_ids": ["C00877-K1"],
+        "device_profile_ids": ["8ea57628c8afc1b3"],
+        "similar_case_ids": ["CC-0137"],
+        "policy_chunk_ids": ["policy:R2"],
+        "on_card_id": "C04570-K1",
+    }
+    base.update(overrides)
+    return base
+
+
+@pytest.fixture(scope="module")
+def connection():
+    try:
+        return connect(load_config())
+    except TigerGraphConfigError as error:
+        pytest.skip(f"TigerGraph not available: {error}")
+
+
+@pytest.fixture
+def written(connection):
+    """Write the fixture case, yield the connection, then remove it."""
+    connection.runInstalledQuery(WRITE, params=payload(), usePost=True)
+    yield connection
+    connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def read_back(connection):
+    return connection.runInstalledQuery(READ, params={"case_id": TEST_CASE_ID})
+
+
+# --- the round trip --------------------------------------------------------
+
+
+def test_the_case_reads_back_with_the_values_it_was_given(written):
+    result = read_back(written)
+    assert scalar(result, "found") is True
+
+    stored = rows(result, "investigation_case")[0]
+    assert stored["case_id"] == TEST_CASE_ID
+    assert stored["memory_epoch"] == TEST_EPOCH
+    assert stored["verdict"] == "fraud"
+    assert stored["fraud_probability"] == pytest.approx(0.86)
+    assert stored["exposure_usd"] == pytest.approx(300.14)
+    assert stored["policy_version"] == "1.0"
+
+
+def test_every_evidence_relationship_reads_back(written):
+    result = read_back(written)
+    assert scalar(result, "affected_txn_edge_count") == 3
+    assert scalar(result, "connected_card_edge_count") == 1
+    assert scalar(result, "on_card_edge_count") == 1
+    assert scalar(result, "device_edge_count") == 1
+    assert scalar(result, "similar_case_edge_count") == 1
+    assert scalar(result, "policy_chunk_edge_count") == 1
+
+
+def test_retrieval_provenance_is_findable_in_the_graph(written):
+    """Validator rule R09 checks a citation against the graph, not the answer."""
+    result = read_back(written)
+    assert [item["case_id"] for item in rows(result, "similar_prior_cases")] == ["CC-0137"]
+    assert [item["chunk_id"] for item in rows(result, "cited_policy_chunks")] == ["policy:R2"]
+
+
+def test_an_absent_case_reads_back_as_not_found(connection):
+    result = connection.runInstalledQuery(READ, params={"case_id": "NO-SUCH-CASE"})
+    assert scalar(result, "found") is False
+    assert rows(result, "investigation_case") == []
+
+
+# --- unmatched identifiers -------------------------------------------------
+
+
+def test_unmatched_identifiers_are_reported_not_swallowed(connection):
+    """An answer citing an id the graph lacks must fail validation, not lose an edge."""
+    result = connection.runInstalledQuery(
+        WRITE,
+        params=payload(
+            affected_txn_ids=["3450436", "9999999999"],
+            similar_case_ids=["CC-0137", "CC-9999999"],
+        ),
+        usePost=True,
+    )
+    try:
+        assert "9999999999" in scalar(result, "unmatched_txn_ids")
+        assert "CC-9999999" in scalar(result, "unmatched_case_ids")
+        assert scalar(result, "affected_txn_edges_written") == 1
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+# --- idempotence -----------------------------------------------------------
+
+
+def test_rewriting_the_same_case_does_not_duplicate(written):
+    """A retried or resumed run must converge, not accumulate."""
+    before = read_back(written)
+    for _ in range(3):
+        written.runInstalledQuery(WRITE, params=payload(), usePost=True)
+    after = read_back(written)
+
+    for count in (
+        "affected_txn_edge_count",
+        "connected_card_edge_count",
+        "device_edge_count",
+        "similar_case_edge_count",
+        "policy_chunk_edge_count",
+    ):
+        assert scalar(after, count) == scalar(before, count), count
+
+
+def test_rewriting_updates_the_vertex_in_place(written):
+    written.runInstalledQuery(
+        WRITE, params=payload(verdict="uncertain", fraud_probability=0.5), usePost=True
+    )
+    stored = rows(read_back(written), "investigation_case")[0]
+    assert stored["verdict"] == "uncertain"
+    assert stored["fraud_probability"] == pytest.approx(0.5)
+
+
+def test_edges_are_additive_on_a_reduced_rewrite(written):
+    """The documented limit, pinned so it cannot be forgotten.
+
+    An upsert asserts what it is given and cannot know what was withdrawn, so a
+    rewrite with fewer identifiers leaves the earlier edges. A corrected rerun
+    that removes evidence must delete the case vertex first.
+    """
+    written.runInstalledQuery(WRITE, params=payload(affected_txn_ids=["3450436"]), usePost=True)
+    assert scalar(read_back(written), "affected_txn_edge_count") == 3
+
+
+def test_the_benchmark_epoch_is_left_clean(connection):
+    """No fixture may survive into the epoch the benchmark retrieves from."""
+    connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+    result = connection.runInstalledQuery(READ, params={"case_id": TEST_CASE_ID})
+    assert scalar(result, "found") is False

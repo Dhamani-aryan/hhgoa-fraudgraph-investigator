@@ -1,0 +1,68 @@
+// read_investigation_case_v1
+//
+// Reads back a case written by write_investigation_case_v1, so the caller can
+// compare what the graph holds with what it sent.
+//
+// Deliberately a SEPARATE query rather than a block inside the write. A write
+// that reports its own success is asserting, not confirming; this fetches the
+// stored vertex and its edges independently, and an answer may set
+// written_to_graph=true only after that comparison succeeds.
+//
+// Returns edge counts as well as attributes, because a case whose vertex was
+// stored but whose evidence edges were not is a partial write, and the
+// challenge asks for the case and its evidence to be findable by the next
+// investigation.
+
+CREATE QUERY read_investigation_case_v1(
+  STRING case_id
+) FOR GRAPH HHGOAFraud {
+  SumAccum<INT> @@txn_edges, @@card_edges, @@device_edges;
+  SumAccum<INT> @@similar_edges, @@policy_edges, @@on_card_edges;
+
+  SEED = {InvestigationCase.*};
+  stored = SELECT i FROM SEED:i WHERE i.case_id == case_id;
+
+  PRINT (stored.size() > 0) AS found;
+
+  PRINT stored[
+    stored.case_id, stored.memory_epoch, stored.status, stored.verdict,
+    stored.fraud_probability, stored.pattern, stored.pattern_description,
+    stored.exposure_usd, stored.first_suspicious_txn_id, stored.summary,
+    stored.stop_reason, stored.initial_actions, stored.final_actions,
+    stored.sar_filed, stored.sar_narrative, stored.opened_at,
+    stored.anchor_time, stored.written_at, stored.query_bundle_version,
+    stored.scoring_version, stored.policy_version, stored.prompt_version,
+    stored.code_commit, stored.answer_json, stored.memory_text
+  ] AS investigation_case;
+
+  affected = SELECT t FROM stored:i -(INV_INVOLVES>)- Transaction:t
+    ACCUM @@txn_edges += 1;
+  PRINT affected[affected.txn_id, affected.ts, affected.amount] AS affected_transactions;
+
+  connected = SELECT c FROM stored:i -(INV_CONNECTED_TO>)- PaymentCard:c
+    ACCUM @@card_edges += 1;
+  PRINT connected[connected.card_id] AS connected_cards;
+
+  on_card = SELECT c FROM stored:i -(INV_ON_CARD>)- PaymentCard:c
+    ACCUM @@on_card_edges += 1;
+  PRINT on_card[on_card.card_id] AS on_card;
+
+  devices = SELECT d FROM stored:i -(INV_USES_DEVICE>)- DeviceProfile:d
+    ACCUM @@device_edges += 1;
+  PRINT devices[devices.device_id, devices.label] AS device_profiles;
+
+  similar = SELECT k FROM stored:i -(INV_SIMILAR_TO>)- ClosedCase:k
+    ACCUM @@similar_edges += 1;
+  PRINT similar[similar.case_id, similar.outcome, similar.pattern] AS similar_prior_cases;
+
+  cited = SELECT p FROM stored:i -(INV_CITES_POLICY>)- PolicyChunk:p
+    ACCUM @@policy_edges += 1;
+  PRINT cited[cited.chunk_id, cited.anchor] AS cited_policy_chunks;
+
+  PRINT @@txn_edges AS affected_txn_edge_count;
+  PRINT @@card_edges AS connected_card_edge_count;
+  PRINT @@on_card_edges AS on_card_edge_count;
+  PRINT @@device_edges AS device_edge_count;
+  PRINT @@similar_edges AS similar_case_edge_count;
+  PRINT @@policy_edges AS policy_chunk_edge_count;
+}
