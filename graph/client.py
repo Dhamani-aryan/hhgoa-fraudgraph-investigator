@@ -110,12 +110,65 @@ def redact(text: str, config: TigerGraphConfig) -> str:
     return text
 
 
-def connect(config: TigerGraphConfig | None = None, *, get_token: bool = True):
+#: Savanna auto-suspends an idle workspace and resumes it on the next request.
+#: While it resumes, the endpoint answers with a "Starting workspace" holding
+#: page or a gateway error instead of the database, so the first call after an
+#: idle period fails through no fault of the configuration.
+COLD_START_MARKERS = (
+    "starting workspace",
+    "workspace is starting",
+    "workspace is being started",
+    "resuming",
+    "502 bad gateway",
+    "503 service unavailable",
+    "504 gateway time-out",
+    "504 gateway timeout",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "connection aborted",
+    "connection reset",
+    "max retries exceeded",
+    "read timed out",
+)
+
+#: Roughly five minutes of waiting, which is longer than a Savanna resume takes
+#: but bounded, so a genuinely wrong secret still fails quickly rather than
+#: hanging a batch run.
+CONNECT_MAX_ATTEMPTS = 8
+CONNECT_INITIAL_BACKOFF_S = 5.0
+CONNECT_MAX_BACKOFF_S = 60.0
+
+
+def looks_like_cold_start(message: str) -> bool:
+    """Whether a failure looks like a resuming workspace rather than a real error."""
+    lowered = message.lower()
+    return any(marker in lowered for marker in COLD_START_MARKERS)
+
+
+def connect(
+    config: TigerGraphConfig | None = None,
+    *,
+    get_token: bool = True,
+    max_attempts: int = CONNECT_MAX_ATTEMPTS,
+    on_retry=None,
+):
     """Return an authenticated pyTigerGraph connection.
 
-    Raises ``TigerGraphConfigError`` with a redacted message on failure, so a
-    stack trace can never carry the secret into a log or a screenshot.
+    Retries while the workspace is resuming. Auto-suspend is required by the
+    challenge brief and is enabled on this workspace at 60 minutes, so the first
+    call after an idle period reliably lands on Savanna's holding page. A single
+    attempt would turn a normal cold start into a failed verification run.
+
+    Backoff is bounded and only applies to failures that look transient. A wrong
+    secret or a bad host still fails on the first attempt, because waiting would
+    not help and a batch run must not hang on a real configuration error.
+
+    Raises ``TigerGraphConfigError`` with a redacted message, so a stack trace
+    can never carry the secret into a log or a screenshot.
     """
+    import time
+
     from pyTigerGraph import TigerGraphConnection
 
     config = config or load_config()
@@ -133,14 +186,33 @@ def connect(config: TigerGraphConfig | None = None, *, get_token: bool = True):
     if config.api_token:
         kwargs["apiToken"] = config.api_token
 
-    try:
-        connection = TigerGraphConnection(**kwargs)
-        if get_token and not config.api_token:
-            # On Cloud the secret is the credential the token is minted from.
-            secret = config.secret if config.tg_cloud else None
-            connection.getToken(secret)
-    except Exception as error:  # noqa: BLE001 - re-raised redacted below
-        raise TigerGraphConfigError(
-            f"could not connect to TigerGraph at {config.host}: {redact(str(error), config)}"
-        ) from None
-    return connection
+    backoff = CONNECT_INITIAL_BACKOFF_S
+    last_message = ""
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            connection = TigerGraphConnection(**kwargs)
+            if get_token and not config.api_token:
+                # On Cloud the secret is the credential the token is minted from.
+                secret = config.secret if config.tg_cloud else None
+                connection.getToken(secret)
+            return connection
+        except Exception as error:  # noqa: BLE001 - re-raised redacted below
+            last_message = redact(str(error), config)
+            transient = looks_like_cold_start(last_message)
+            if not transient or attempt == max_attempts:
+                break
+            if on_retry is not None:
+                on_retry(attempt, backoff, last_message)
+            else:
+                print(
+                    f"  workspace not ready (attempt {attempt}/{max_attempts}), "
+                    f"retrying in {backoff:.0f}s ..."
+                )
+            time.sleep(backoff)
+            backoff = min(backoff * 2, CONNECT_MAX_BACKOFF_S)
+
+    raise TigerGraphConfigError(
+        f"could not connect to TigerGraph at {config.host} after {attempt} "
+        f"attempt(s): {last_message}"
+    ) from None
