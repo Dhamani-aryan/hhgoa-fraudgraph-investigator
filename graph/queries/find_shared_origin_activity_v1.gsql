@@ -3,42 +3,56 @@
 // Which other cards used the same device, region or recipient email close in
 // time to this case, and do any of them carry confirmed fraud?
 //
-// This is the query most able to invent a fraud ring that is not there, so the
-// controls are the point:
+// This is the query most able to invent a fraud ring that is not there, so its
+// controls are the substance.
 //
+// ---------------------------------------------------------------------------
+// EFFECTIVE EVIDENCE CUTOFF
+// ---------------------------------------------------------------------------
+// Everything below is bounded by effective_cutoff = min(anchor_ts, as_of_ts),
+// not by as_of_ts alone.
+//
+// The two differ whenever a case is reviewed later than it was triggered. Using
+// as_of_ts let a later review surface transactions, connected cards and
+// confirmed-fraud outcomes that did not exist when the alert fired, which is
+// exactly the evidence an investigator could not have had. The cutoff applies
+// identically to the rarity count, the shared transactions and the fraud
+// enrichment, so no one of them can reintroduce the future the others exclude.
+//
+// ---------------------------------------------------------------------------
+// HONEST BOUNDING
+// ---------------------------------------------------------------------------
+// GSQL runs ACCUM over every matched vertex and applies LIMIT only to the
+// returned set, so a LIMIT does not bound traversal work. An earlier version
+// claimed a scan budget it did not have: with the budget set to 5, the scan
+// still walked 45,521 rows for gmail.com.
+//
+// Work is therefore bounded BEFORE any traversal, by an O(1) precheck against
+// the entity's stored lifetime transaction count. An entity whose lifetime
+// volume exceeds max_scan_rows is refused without being scanned at all.
+//
+// That stored figure is a RESOURCE measure and never case evidence. It is
+// reported as precheck_lifetime_transactions to keep the distinction visible,
+// it decides only whether a scan is affordable, and no claim about the case may
+// rest on it. The rarity that drives the supernode decision is counted to the
+// effective cutoff.
+//
+// ---------------------------------------------------------------------------
+// The remaining controls
+// ---------------------------------------------------------------------------
 // * Supernodes. The Gate 0 audit measured gmail.com touching 9,332 cards and
-//   billing region 299.0 touching 2,075, while a strong device signature has a
-//   median of 1-2. An entity sharing too widely is refused outright and
-//   reported as refused, because sharing it says nothing about coordination.
+//   billing region 299.0 touching 2,075, against a median of 1-2 for a strong
+//   device signature. Sharing such an entity says nothing about coordination.
+//   The default threshold is 100: the audit put the 99th percentile of
+//   cards-per-device at 137 for signatures of strength 3 or more. Gate 3 tunes
+//   it with the other detection thresholds.
+// * Time locality. Only activity within window_hours of the anchor counts.
+// * Fraud enrichment, reported separately from degree, and only for cases
+//   already closed as confirmed fraud at the effective cutoff.
 //
-//   Rarity is counted AS OF the cutoff, not read from the stored n_cards
-//   attribute. n_cards is computed over the whole six-month dataset at load
-//   time, so using it would let relationships formed after the alert decide
-//   whether an entity counts as rare today -- and could flip an entity between
-//   admitted and refused on the strength of the future.
-//
-//   The default threshold is 100. The Gate 0 audit put the 99th percentile of
-//   cards-per-device at 137 for signatures of strength 3 or more, so 100 admits
-//   only entities below that, and a signature shared with a hundred cards is
-//   already far from rare. It is a parameter because Gate 3 tunes the detection
-//   thresholds together against the historical replay.
-//
-//   The rarity scan is bounded by max_rarity_scan and FAILS CLOSED. If the scan
-//   is truncated the entity is refused, because an entity with more history
-//   than we are willing to read is precisely the kind that is too common to
-//   imply coordination, and guessing in the permissive direction is the
-//   expensive mistake here.
-// * Time locality. Only activity inside window_hours of the anchor counts, so
-//   a device shared across six months is not read as a ring.
-// * Rarity. The as-of distinct-card count comes back with the result, so the
-//   caller can weigh a device seen on 3 cards differently from one seen on 800.
-// * Fraud enrichment. Connected cards are reported with whether they carry a
-//   closed case already confirmed as fraud at the anchor time.
-// * Bounded expansion. Every hop is capped.
-//
-// The caller still has to decide. This query supplies degree, rarity, time
-// locality and fraud enrichment separately so a claim can rest on the
-// combination the policy requires, never on degree alone.
+// Degree, rarity, time locality and fraud enrichment come back as separate
+// facts so a claim can rest on the combination policy R6 requires, never on
+// degree alone.
 
 CREATE QUERY find_shared_origin_activity_v1(
   STRING entity_kind,          // "device" | "region" | "recipient_email"
@@ -49,118 +63,132 @@ CREATE QUERY find_shared_origin_activity_v1(
   INT window_hours = 168,
   INT max_entity_cards = 100,
   INT max_rows = 400,
-  INT max_rarity_scan = 20000
+  INT max_scan_rows = 20000
 ) FOR GRAPH HHGOAFraud {
   DATETIME anchor = to_datetime(anchor_ts);
-  DATETIME cutoff = to_datetime(as_of_ts);
+  DATETIME as_of = to_datetime(as_of_ts);
+
+  // The earlier of the two bounds everything.
+  DATETIME effective_cutoff = anchor;
+  IF datetime_to_epoch(as_of) < datetime_to_epoch(anchor) THEN
+    effective_cutoff = as_of;
+  END;
   INT anchor_epoch = datetime_to_epoch(anchor);
 
-  SetAccum<STRING> @@entity_cards_to_anchor;
-  SumAccum<INT> @@rarity_rows_scanned;
+  SumAccum<INT> @@precheck_rows;
+  SetAccum<STRING> @@entity_cards_to_cutoff;
+  SumAccum<INT> @@rarity_rows;
   SumAccum<INT> @@window_transactions;
   SetAccum<STRING> @@window_cards;
   SetAccum<STRING> @@fraud_cards;
-  BOOL refused_supernode = FALSE;
 
-  // Resolve the shared entity. The stored n_cards attribute is deliberately
-  // not read; rarity is counted to the cutoff below.
+  BOOL refused = FALSE;
+  BOOL over_budget = FALSE;
+  BOOL too_common = FALSE;
+
   DEVICES = {DeviceProfile.*};
   REGIONS = {BillingRegion.*};
   EMAILS = {EmailDomain.*};
 
+  // Resource precheck only. n_transactions is a lifetime figure, used here
+  // solely to decide whether scanning this entity is affordable.
   device = SELECT d FROM DEVICES:d
-    WHERE entity_kind == "device" AND d.device_id == entity_id;
+    WHERE entity_kind == "device" AND d.device_id == entity_id
+    POST-ACCUM @@precheck_rows += d.n_transactions;
   region = SELECT r FROM REGIONS:r
-    WHERE entity_kind == "region" AND r.region_code == entity_id;
+    WHERE entity_kind == "region" AND r.region_code == entity_id
+    POST-ACCUM @@precheck_rows += r.n_transactions;
   email = SELECT e FROM EMAILS:e
-    WHERE entity_kind == "recipient_email" AND e.domain == entity_id;
+    WHERE entity_kind == "recipient_email" AND e.domain == entity_id
+    POST-ACCUM @@precheck_rows += e.n_transactions;
 
-  // As-of rarity: distinct cards on this entity at or before the cutoff.
-  rarity_device = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
-    WHERE t.ts <= cutoff
-    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
-    LIMIT max_rarity_scan;
-
-  rarity_region = SELECT t FROM region:r -(BILLS>)- Transaction:t
-    WHERE t.ts <= cutoff
-    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
-    LIMIT max_rarity_scan;
-
-  rarity_email = SELECT t FROM email:e -(RECEIVED_BY_DOMAIN>)- Transaction:t
-    WHERE t.ts <= cutoff
-    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
-    LIMIT max_rarity_scan;
-
-  BOOL rarity_scan_truncated = (@@rarity_rows_scanned >= max_rarity_scan);
-
-  PRINT entity_kind AS entity_kind, entity_id AS entity_id;
-  PRINT @@entity_cards_to_anchor.size() AS entity_cards_to_anchor;
-  PRINT @@rarity_rows_scanned AS rarity_rows_scanned;
-  PRINT rarity_scan_truncated AS rarity_scan_truncated;
-  PRINT max_entity_cards AS supernode_threshold;
-  PRINT as_of_ts AS as_of_ts;
-
-  IF @@entity_cards_to_anchor.size() > max_entity_cards OR rarity_scan_truncated THEN
-    refused_supernode = TRUE;
+  IF @@precheck_rows > max_scan_rows THEN
+    over_budget = TRUE;
+    refused = TRUE;
   END;
 
-  PRINT refused_supernode AS refused_as_supernode;
+  PRINT entity_kind AS entity_kind, entity_id AS entity_id;
+  PRINT anchor_ts AS anchor_ts, as_of_ts AS as_of_ts;
+  PRINT effective_cutoff AS effective_cutoff;
+  PRINT max_entity_cards AS supernode_threshold;
+  PRINT max_scan_rows AS scan_row_budget;
+  PRINT @@precheck_rows AS precheck_lifetime_transactions;
+  PRINT over_budget AS refused_over_scan_budget;
 
-  IF refused_supernode THEN
-    IF rarity_scan_truncated THEN
-      PRINT "rarity could not be established within the scan budget, so the entity is treated as too common to imply coordination" AS refusal_reason;
-    ELSE
-      PRINT "entity is shared too widely for co-occurrence to imply coordination"
-        AS refusal_reason;
+  IF NOT over_budget THEN
+    // Affordable by construction: the precheck established the row count.
+    rarity_device = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+      ACCUM @@entity_cards_to_cutoff += t.card_id, @@rarity_rows += 1;
+    rarity_region = SELECT t FROM region:r -(BILLS>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+      ACCUM @@entity_cards_to_cutoff += t.card_id, @@rarity_rows += 1;
+    rarity_email = SELECT t FROM email:e -(RECEIVED_BY_DOMAIN>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+      ACCUM @@entity_cards_to_cutoff += t.card_id, @@rarity_rows += 1;
+
+    IF @@entity_cards_to_cutoff.size() > max_entity_cards THEN
+      too_common = TRUE;
+      refused = TRUE;
     END;
+  END;
+
+  PRINT @@entity_cards_to_cutoff.size() AS entity_cards_to_cutoff;
+  PRINT @@rarity_rows AS rarity_rows_scanned;
+  PRINT too_common AS refused_as_supernode;
+  PRINT refused AS refused;
+
+  IF over_budget THEN
+    PRINT "entity volume exceeds the scan budget, so its rarity cannot be established affordably" AS refusal_reason;
   ELSE
-    // Transactions on the entity, inside the window and at or before the anchor.
-    entity_txns = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
-      WHERE t.ts <= cutoff
-        AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
-        AND t.card_id != exclude_card_id
-      ACCUM @@window_transactions += 1, @@window_cards += t.card_id
-      LIMIT max_rows;
+    IF too_common THEN
+      PRINT "entity is shared too widely at the cutoff for co-occurrence to imply coordination" AS refusal_reason;
+    ELSE
+      entity_txns = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+          AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
+          AND t.card_id != exclude_card_id
+        ACCUM @@window_transactions += 1, @@window_cards += t.card_id
+        LIMIT max_rows;
 
-    region_txns = SELECT t FROM region:r -(BILLS>)- Transaction:t
-      WHERE t.ts <= cutoff
-        AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
-        AND t.card_id != exclude_card_id
-      ACCUM @@window_transactions += 1, @@window_cards += t.card_id
-      LIMIT max_rows;
+      region_txns = SELECT t FROM region:r -(BILLS>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+          AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
+          AND t.card_id != exclude_card_id
+        ACCUM @@window_transactions += 1, @@window_cards += t.card_id
+        LIMIT max_rows;
 
-    email_txns = SELECT t FROM email:e -(RECEIVED_BY_DOMAIN>)- Transaction:t
-      WHERE t.ts <= cutoff
-        AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
-        AND t.card_id != exclude_card_id
-      ACCUM @@window_transactions += 1, @@window_cards += t.card_id
-      LIMIT max_rows;
+      email_txns = SELECT t FROM email:e -(RECEIVED_BY_DOMAIN>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+          AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_hours * 3600
+          AND t.card_id != exclude_card_id
+        ACCUM @@window_transactions += 1, @@window_cards += t.card_id
+        LIMIT max_rows;
 
-    shared = entity_txns UNION region_txns UNION email_txns;
+      shared = entity_txns UNION region_txns UNION email_txns;
 
-    PRINT @@window_transactions AS transactions_in_window;
-    PRINT @@window_cards AS cards_in_window;
-    PRINT @@window_cards.size() AS distinct_cards_in_window;
+      PRINT @@window_transactions AS transactions_in_window;
+      PRINT @@window_cards AS cards_in_window;
+      PRINT @@window_cards.size() AS distinct_cards_in_window;
+      PRINT shared[
+        shared.txn_id, shared.ts, shared.amount, shared.card_id,
+        shared.customer_id, shared.channel, shared.risk_score
+      ] AS shared_transactions;
 
-    PRINT shared[
-      shared.txn_id, shared.ts, shared.amount, shared.card_id,
-      shared.customer_id, shared.channel, shared.risk_score
-    ] AS shared_transactions;
+      connected_cards = SELECT c FROM shared:t -(MADE_BY>)- PaymentCard:c;
 
-    // Fraud enrichment: which of those cards already carried a case confirmed
-    // as fraud by the anchor time. A case closed after the anchor is not
-    // evidence the investigator could have had.
-    connected_cards = SELECT c FROM shared:t -(MADE_BY>)- PaymentCard:c;
+      // Only fraud already confirmed at the effective cutoff. An outcome
+      // reached afterwards is not evidence the investigator could have had.
+      fraud_cases = SELECT k FROM connected_cards:c -(CARD_HAS_CASE>)- ClosedCase:k
+        WHERE k.closed_at <= effective_cutoff AND k.outcome == "confirmed_fraud"
+        ACCUM @@fraud_cards += k.card_id;
 
-    fraud_cases = SELECT k FROM connected_cards:c -(CARD_HAS_CASE>)- ClosedCase:k
-      WHERE k.closed_at <= cutoff AND k.outcome == "confirmed_fraud"
-      ACCUM @@fraud_cards += k.card_id;
-
-    PRINT @@fraud_cards AS cards_with_confirmed_fraud;
-    PRINT @@fraud_cards.size() AS fraud_enriched_card_count;
-    PRINT fraud_cases[
-      fraud_cases.case_id, fraud_cases.card_id, fraud_cases.pattern,
-      fraud_cases.closed_at, fraud_cases.exposure_usd
-    ] AS prior_fraud_cases;
+      PRINT @@fraud_cards AS cards_with_confirmed_fraud;
+      PRINT @@fraud_cards.size() AS fraud_enriched_card_count;
+      PRINT fraud_cases[
+        fraud_cases.case_id, fraud_cases.card_id, fraud_cases.pattern,
+        fraud_cases.closed_at, fraud_cases.exposure_usd
+      ] AS prior_fraud_cases;
+    END;
   END;
 }
