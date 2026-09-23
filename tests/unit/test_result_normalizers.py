@@ -133,3 +133,20 @@ def test_vertex_rows_are_still_flattened_alongside_maps():
     merged = normalize_result(combined)
     assert merged["window_transactions"][0]["txn_id"] == "3450436"
     assert merged["region_history"]["327.0"] == 1
+
+
+# --- resource prechecks are never evidence ---------------------------------
+
+
+def test_resource_prechecks_are_removed_from_evidence_values():
+    from graph.result_normalizers import evidence_values, is_resource_field
+
+    result = [
+        {"device_precheck_lifetime_transactions": 621, "device_degree_to_cutoff": 299},
+        {"region_precheck_lifetime_transactions": 42035, "region_scan_skipped": True},
+        {"precheck_lifetime_transactions": 7},
+    ]
+    values = evidence_values(result)
+    assert values == {"device_degree_to_cutoff": 299, "region_scan_skipped": True}
+    assert is_resource_field("email_precheck_lifetime_transactions")
+    assert not is_resource_field("email_degree_to_cutoff")

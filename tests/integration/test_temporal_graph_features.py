@@ -22,6 +22,45 @@ ANCHOR = "2016-11-11 23:46:24"
 
 LATER_CUTOFFS = ("2016-12-01 00:00:00", "2016-12-31 23:59:59")
 
+#: Lifetime volumes of the fixture's shared entities, the resource prechecks.
+#: Region 204.0 holds 42,035 transactions and anonymous.com 57,572, both above
+#: the 20,000 default, so by default both sections are withheld.
+REGION_LIFETIME = 42035
+EMAIL_LIFETIME = 57572
+
+#: A budget large enough to admit every section of the fixture, passed
+#: explicitly by tests that need the region and email values.
+GENEROUS = 100000
+
+#: The keys each gated section returns only when its scan ran.
+SECTION_KEYS = {
+    "device": (
+        "device_degree_to_cutoff",
+        "device_degree_1h",
+        "device_degree_24h",
+        "device_degree_7d",
+        "device_distinct_cards_in_window",
+        "device_distinct_customers_in_window",
+        "device_fraud_neighbour_cards",
+        "device_cleared_neighbour_cards",
+    ),
+    "region": (
+        "region_degree_to_cutoff",
+        "region_degree_1h",
+        "region_degree_24h",
+        "region_degree_7d",
+        "region_transactions_in_window",
+        "region_distinct_cards_in_window",
+    ),
+    "email": (
+        "email_degree_to_cutoff",
+        "email_degree_1h",
+        "email_degree_24h",
+        "email_degree_7d",
+        "email_distinct_cards_in_window",
+    ),
+}
+
 
 @pytest.fixture(scope="module")
 def connection():
@@ -85,7 +124,7 @@ def test_distinct_customers_is_reported_beside_distinct_cards(connection):
 
 def test_region_reach_exposes_a_supernode(connection):
     """The caller needs this to discount a common billing region."""
-    result = features(connection)
+    result = features(connection, max_scan_rows=GENEROUS)
     assert scalar(result, "region_distinct_cards_in_window") > 100
 
 
@@ -156,7 +195,7 @@ def test_the_precheck_is_a_resource_figure_not_a_feature(connection):
 
 def test_all_three_shared_entities_report_degree_at_four_scales(connection):
     """The plan asks for device, email AND region degree; email was missing."""
-    result = features(connection)
+    result = features(connection, max_scan_rows=GENEROUS)
     for entity in ("device", "email", "region"):
         for scale in ("to_cutoff", "1h", "24h", "7d"):
             key = f"{entity}_degree_{scale}"
@@ -193,7 +232,7 @@ def test_burst_count_is_reported_and_bounded_by_the_gap(connection):
 
 def test_email_reach_exposes_a_common_domain(connection):
     """anonymous.com is a free-mail equivalent and must be discountable."""
-    result = features(connection)
+    result = features(connection, max_scan_rows=GENEROUS)
     assert scalar(result, "email_distinct_cards_in_window") > 100
 
 
@@ -202,3 +241,84 @@ def test_the_vector_is_substantial(connection):
     from graph.result_normalizers import normalize_result
 
     assert len(normalize_result(features(connection))) >= 40
+
+
+# --- every shared-entity section is budgeted, not only the device ----------
+
+
+def test_by_default_the_region_and_email_supernodes_are_withheld(connection):
+    """Measured before the fix: 31,813 region and 28,793 email rows at a 20,000 budget."""
+    result = features(connection)
+    for entity, lifetime in (("region", REGION_LIFETIME), ("email", EMAIL_LIFETIME)):
+        assert scalar(result, f"{entity}_precheck_lifetime_transactions") == lifetime
+        assert scalar(result, f"{entity}_scan_skipped") is True
+        assert scalar(result, f"{entity}_rows_scanned") == 0, f"{entity} was scanned"
+        assert scalar(result, f"{entity}_features_withheld_reason")
+        for key in SECTION_KEYS[entity]:
+            assert scalar(result, key) is None, f"{key} returned for a skipped section"
+
+
+def test_each_section_is_gated_independently(connection):
+    """A budget between the two volumes admits the region and withholds the email."""
+    result = features(connection, max_scan_rows=50000)
+    assert scalar(result, "region_scan_skipped") is False
+    assert scalar(result, "region_degree_to_cutoff") == 31813
+    assert scalar(result, "email_scan_skipped") is True
+    assert scalar(result, "email_rows_scanned") == 0
+    assert scalar(result, "email_degree_to_cutoff") is None
+    # The device is small enough for every budget used here.
+    assert scalar(result, "device_degree_to_cutoff") == 299
+
+
+@pytest.mark.parametrize("budget", [1, 20000, 50000, GENEROUS])
+def test_no_section_ever_returns_partial_statistics(connection, budget):
+    """Either the whole section, read to the cutoff, or none of it."""
+    result = features(connection, max_scan_rows=budget)
+    for entity, keys in SECTION_KEYS.items():
+        lifetime = scalar(result, f"{entity}_precheck_lifetime_transactions")
+        skipped = scalar(result, f"{entity}_scan_skipped")
+        assert skipped is (lifetime > budget), entity
+        if skipped:
+            assert scalar(result, f"{entity}_rows_scanned") == 0, entity
+            assert all(scalar(result, key) is None for key in keys), entity
+        else:
+            assert all(scalar(result, key) is not None for key in keys), entity
+            assert scalar(result, f"{entity}_rows_scanned") == scalar(
+                result, f"{entity}_degree_to_cutoff"
+            ), f"{entity} scanned a different number of rows than it reported"
+
+
+def test_an_over_budget_section_performs_no_scan(connection):
+    """rows_scanned counts the traversal's own ACCUM, so 0 means it never ran."""
+    result = features(connection, max_scan_rows=1)
+    for entity in SECTION_KEYS:
+        assert scalar(result, f"{entity}_scan_skipped") is True
+        assert scalar(result, f"{entity}_rows_scanned") == 0
+    # The ungated card history is still there: skipping is per section.
+    assert scalar(result, "card_degree_to_cutoff") == 53
+
+
+def test_lifetime_prechecks_are_resource_figures_never_evidence(connection):
+    """The lifetime count includes activity after the anchor, so it cannot be evidence."""
+    from graph.result_normalizers import evidence_values
+
+    result = features(connection, max_scan_rows=GENEROUS)
+    # Lifetime and cutoff-bounded differ: the precheck sees the future.
+    assert scalar(result, "region_precheck_lifetime_transactions") > scalar(
+        result, "region_degree_to_cutoff"
+    )
+    assert scalar(result, "email_precheck_lifetime_transactions") > scalar(
+        result, "email_degree_to_cutoff"
+    )
+    evidence = evidence_values(result)
+    assert not [key for key in evidence if "lifetime" in key]
+    assert "region_degree_to_cutoff" in evidence
+
+
+@pytest.mark.parametrize("later", LATER_CUTOFFS)
+def test_admitted_region_and_email_features_are_identical_at_a_later_review(connection, later):
+    at_anchor = comparable(features(connection, max_scan_rows=GENEROUS))
+    reviewed = comparable(features(connection, as_of=later, max_scan_rows=GENEROUS))
+    assert reviewed == at_anchor, {
+        key for key in set(at_anchor) | set(reviewed) if at_anchor.get(key) != reviewed.get(key)
+    }

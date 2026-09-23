@@ -92,3 +92,28 @@ def first(result: Any, block: str) -> dict | None:
 def scalar(result: Any, name: str, default: Any = None) -> Any:
     """A scalar printed by a query, such as a count or a total."""
     return normalize_result(result).get(name, default)
+
+
+#: Every installed query prints a lifetime aggregate used as a scan-budget
+#: precheck under a name ending with this suffix. Those figures decide only
+#: whether a traversal is affordable; they span the whole dataset, including
+#: activity after the case anchor, so they must never reach case evidence.
+RESOURCE_PRECHECK_SUFFIX = "precheck_lifetime_transactions"
+
+
+def is_resource_field(name: str) -> bool:
+    """True for a resource-control figure that is never case evidence."""
+    return name.endswith(RESOURCE_PRECHECK_SUFFIX)
+
+
+def evidence_values(result: Any) -> dict[str, Any]:
+    """A query's named results with every resource-only precheck removed.
+
+    The evidence assembler builds claims from this, so a lifetime count cannot
+    become a claim by accident.
+    """
+    return {
+        name: value
+        for name, value in normalize_result(result).items()
+        if not is_resource_field(name)
+    }

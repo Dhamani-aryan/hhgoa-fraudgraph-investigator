@@ -23,11 +23,32 @@
 // ---------------------------------------------------------------------------
 // BOUNDING
 // ---------------------------------------------------------------------------
-// The device expansion is gated by an O(1) precheck against the device's stored
-// lifetime transaction count, and skipped when it exceeds max_scan_rows. That
-// stored figure is a RESOURCE measure, never a feature: it decides only whether
-// the scan is affordable, it is reported under a name that says so, and the
-// features themselves are all cutoff-bounded counts.
+// Each shared-entity section -- device, billing region, purchaser email -- is
+// gated by its own O(1) precheck against the entity's stored lifetime
+// transaction count, and SKIPPED when that exceeds max_scan_rows. A skipped
+// section returns none of its features, never a partial count: a degree read
+// from half an entity's history would look like a real, small degree and
+// nothing downstream could tell it apart. Each section reports
+// <entity>_precheck_lifetime_transactions, <entity>_scan_skipped and
+// <entity>_rows_scanned, which is 0 whenever the section was skipped.
+//
+// An earlier version gated only the device. Measured on HHG-017 with the
+// default max_scan_rows of 20,000, the region section still traversed 31,813
+// transactions and the email section 28,793, so the budget bounded nothing for
+// the two entities most likely to be supernodes.
+//
+// The lifetime figures are RESOURCE measures, never features and never case
+// evidence: they decide only whether a scan is affordable and are reported
+// under names ending precheck_lifetime_transactions so an evidence assembler
+// can drop them by name. The features themselves are all cutoff-bounded
+// counts. EmailDomain.n_transactions sums purchaser AND recipient rows, so for
+// the purchaser scan it is a conservative upper bound: it can skip a scan that
+// would have fitted, never admit one that would not.
+//
+// The card's own history (velocity, burst count, region novelty) is not gated
+// by max_scan_rows. It is bounded by the data instead: the largest card holds
+// 14,891 transactions, below the 20,000 default, the figure get_card_baseline_v1
+// gates on and a unit test pins against the prepared files.
 //
 // Windowed degrees use 1h, 24h, 7d and to-cutoff, which is the range over which
 // card testing, bursts and slow compromise respectively become visible.
@@ -35,27 +56,35 @@
 // ---------------------------------------------------------------------------
 // COVERAGE AGAINST THE PLAN'S FEATURE LIST
 // ---------------------------------------------------------------------------
-// Computed here:
+// This query does NOT return the plan's whole feature vector on its own. It
+// returns the part that is one traversal from the flagged transaction; the
+// remainder is returned by other installed queries and is to be composed into
+// one vector by the GraphRAG / feature assembler, which is not built yet. A
+// caller holding only this query's output does not have the values listed
+// under "not returned here".
+//
+// Returned here, when the section's budget allows:
 //   device, email and region degree at 1h / 24h / 7d / to-cutoff
-//   distinct connected cards and customers on the device
-//   count AND recency of confirmed-fraud and cleared neighbours
+//   distinct cards in the window on the device, region and email, and
+//     distinct customers on the device
+//   count AND recency of confirmed-fraud and cleared neighbours on the device
 //   burst count, region novelty, device novelty
-//   shared-entity reach, which is the rarity input
 //
-// Computed elsewhere, deliberately, and named here so the split is explicit:
-//   amount MAD and the robust amount percentiles come from the amount list
-//     returned by get_card_baseline_v1 and are computed in Python, where a
-//     zero MAD can be handled explicitly. GSQL has no median.
+// Not returned here -- only a raw input, or computed by another query:
+//   shared-entity rarity and fraud enrichment: only their inputs are here
+//     (in-window distinct cards, neighbour outcome counts). The
+//     cutoff-bounded rarity and supernode decision is made by
+//     find_shared_origin_activity_v1; no enrichment ratio is computed yet.
+//   amount MAD and robust amount percentiles: from the amount list returned
+//     by get_card_baseline_v1, to be computed in Python where a zero MAD can
+//     be handled explicitly. GSQL has no median.
 //   time-local weakly connected component size, two-hop reachability and the
-//     capped provenance paths come from wcc_shared_origin_v1, which is the
-//     graph algorithm and already returns per-member devices, hop and
-//     predecessor cards.
-//   home-region overlap comes from find_region_anomalies_v1, which separates a
+//     capped provenance paths: from wcc_shared_origin_v1, the graph
+//     algorithm, which returns predecessor-device-member path segments.
+//   home-region overlap: from find_region_anomalies_v1, which separates a
 //     trip from a clone by reporting concurrent activity in another region.
-//
-// Nothing in the plan's list is silently missing. A feature that lives in
-// another query is stated above rather than reimplemented here, so the scorer
-// assembles one vector from named sources instead of two disagreeing ones.
+//   region and email degrees for an entity over budget: withheld, see
+//     BOUNDING. The scan-skipped flag is itself the supernode signal.
 
 CREATE QUERY extract_temporal_graph_features_v1(
   STRING flagged_txn_id,
@@ -87,6 +116,10 @@ CREATE QUERY extract_temporal_graph_features_v1(
   MaxAccum<DATETIME> @@latest_fraud_neighbour_closure;
   SumAccum<INT> @@device_precheck_rows;
   BOOL device_scan_skipped = FALSE;
+  SumAccum<INT> @@region_precheck_rows, @@email_precheck_rows;
+  SumAccum<INT> @@device_rows_scanned, @@region_rows_scanned, @@email_rows_scanned;
+  BOOL region_scan_skipped = FALSE;
+  BOOL email_scan_skipped = FALSE;
 
   SEED = {Transaction.*};
   flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id
@@ -157,6 +190,7 @@ CREATE QUERY extract_temporal_graph_features_v1(
       device_hist = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
         WHERE t.ts <= effective_cutoff
         ACCUM
+          @@device_rows_scanned += 1,
           @@device_to_cutoff += 1,
           CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@device_1h += 1 END,
           CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@device_24h += 1 END,
@@ -205,44 +239,75 @@ CREATE QUERY extract_temporal_graph_features_v1(
       // true of a neighbour that was investigated and cleared.
       PRINT @@latest_cleared_neighbour_closure AS latest_cleared_neighbour_closure;
     END;
+    PRINT @@device_rows_scanned AS device_rows_scanned;
 
     // Region degree at the same four scales as the device, plus the in-window
-    // reach the caller needs to discount a common billing region.
-    region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
-    region_hist = SELECT t FROM region:r -(BILLS>)- Transaction:t
-      WHERE t.ts <= effective_cutoff
-      ACCUM
-        @@region_all += 1,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@region_1h += 1 END,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@region_24h += 1 END,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@region_7d += 1 END,
-        CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
-          @@region_to_cutoff += 1, @@region_cards_window += t.card_id END;
+    // reach the caller needs to discount a common billing region. Gated like
+    // the device: a region over budget is skipped whole, never read in part.
+    region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r
+      POST-ACCUM @@region_precheck_rows += r.n_transactions;
+    IF @@region_precheck_rows > max_scan_rows THEN
+      region_scan_skipped = TRUE;
+    END;
+    PRINT @@region_precheck_rows AS region_precheck_lifetime_transactions;
+    PRINT region_scan_skipped AS region_scan_skipped;
 
-    PRINT @@region_all AS region_degree_to_cutoff;
-    PRINT @@region_1h AS region_degree_1h, @@region_24h AS region_degree_24h,
-          @@region_7d AS region_degree_7d;
-    PRINT @@region_to_cutoff AS region_transactions_in_window;
-    PRINT @@region_cards_window.size() AS region_distinct_cards_in_window;
+    IF NOT region_scan_skipped THEN
+      region_hist = SELECT t FROM region:r -(BILLS>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+        ACCUM
+          @@region_rows_scanned += 1,
+          @@region_all += 1,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@region_1h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@region_24h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@region_7d += 1 END,
+          CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
+            @@region_to_cutoff += 1, @@region_cards_window += t.card_id END;
+
+      PRINT @@region_all AS region_degree_to_cutoff;
+      PRINT @@region_1h AS region_degree_1h, @@region_24h AS region_degree_24h,
+            @@region_7d AS region_degree_7d;
+      PRINT @@region_to_cutoff AS region_transactions_in_window;
+      PRINT @@region_cards_window.size() AS region_distinct_cards_in_window;
+    ELSE
+      PRINT "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial"
+        AS region_features_withheld_reason;
+    END;
+    PRINT @@region_rows_scanned AS region_rows_scanned;
 
     // Purchaser email domain, the third shared entity. Degrees at the same
-    // scales, so a common free-mail domain can be discounted the same way.
-    email = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e;
-    email_hist = SELECT t FROM email:e -(PURCHASED_BY_DOMAIN>)- Transaction:t
-      WHERE t.ts <= effective_cutoff
-      ACCUM
-        @@email_all += 1,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@email_1h += 1 END,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@email_24h += 1 END,
-        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@email_7d += 1 END,
-        CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
-          @@email_cards_window += t.card_id END;
-
+    // scales, so a common free-mail domain can be discounted the same way, and
+    // gated the same way: free-mail domains are the largest supernodes here.
+    email = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e
+      POST-ACCUM @@email_precheck_rows += e.n_transactions;
+    IF @@email_precheck_rows > max_scan_rows THEN
+      email_scan_skipped = TRUE;
+    END;
     PRINT email[email.domain] AS purchaser_email_domain;
-    PRINT @@email_all AS email_degree_to_cutoff;
-    PRINT @@email_1h AS email_degree_1h, @@email_24h AS email_degree_24h,
-          @@email_7d AS email_degree_7d;
-    PRINT @@email_cards_window.size() AS email_distinct_cards_in_window;
+    PRINT @@email_precheck_rows AS email_precheck_lifetime_transactions;
+    PRINT email_scan_skipped AS email_scan_skipped;
+
+    IF NOT email_scan_skipped THEN
+      email_hist = SELECT t FROM email:e -(PURCHASED_BY_DOMAIN>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+        ACCUM
+          @@email_rows_scanned += 1,
+          @@email_all += 1,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@email_1h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@email_24h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@email_7d += 1 END,
+          CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
+            @@email_cards_window += t.card_id END;
+
+      PRINT @@email_all AS email_degree_to_cutoff;
+      PRINT @@email_1h AS email_degree_1h, @@email_24h AS email_degree_24h,
+            @@email_7d AS email_degree_7d;
+      PRINT @@email_cards_window.size() AS email_distinct_cards_in_window;
+    ELSE
+      PRINT "purchaser email lifetime volume exceeds max_scan_rows; email features withheld, not partial"
+        AS email_features_withheld_reason;
+    END;
+    PRINT @@email_rows_scanned AS email_rows_scanned;
 
     // Burst count: consecutive transactions on this card separated by less than
     // burst_gap_seconds, read from the gap_seconds precomputed on the NEXT

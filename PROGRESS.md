@@ -95,6 +95,37 @@ Gate 1 is complete and its six review findings are fixed.
     Live tests cover the refusal (nothing found on read-back afterwards), a
     placeholder edge created by the raw write query failing the read-back, and
     the fully attributed case verifying.
+16. **`extract_temporal_graph_features_v1` budgeted only the device.** The
+    region and purchaser-email sections had no precheck: on HHG-017 at the
+    default `max_scan_rows=20000` they traversed 31,813 and 28,793
+    transactions. Both are now gated by the same O(1) lifetime-volume precheck
+    as the device and are skipped whole when over budget, returning
+    `<entity>_precheck_lifetime_transactions`, `<entity>_scan_skipped`,
+    `<entity>_rows_scanned` (0 when skipped) and a withheld reason, and none
+    of that section's degrees. Measured on the installed query for HHG-017:
+    region 204.0 has a lifetime volume of 42,035 and anonymous.com 57,572, so
+    at the default budget both are skipped with 0 rows scanned; at 50,000 the
+    region is admitted (31,813 rows) and the email still skipped; at 100,000
+    both are admitted. Every run returned in 0.32–0.36s. The email lifetime
+    figure sums purchaser and recipient rows, so it is a conservative bound on
+    the purchaser scan. Lifetime figures are resource controls only:
+    `graph.result_normalizers.evidence_values` drops every field ending
+    `precheck_lifetime_transactions`, which all four lifetime prints in the
+    query bundle do. The card's own history remains ungated by
+    `max_scan_rows`; it is bounded by the data (largest card 14,891 rows).
+17. **The feature-vector contract overstated what the query returns.** Its
+    header said nothing in the plan's list was missing. Reassessed: the query
+    returns the device/region/email degrees, in-window reach, device neighbour
+    outcomes and recency, burst count and novelty flags. It does **not**
+    return amount MAD or percentiles (`get_card_baseline_v1` amounts, computed
+    in Python), WCC size, two-hop reachability or paths
+    (`wcc_shared_origin_v1`), home-region overlap
+    (`find_region_anomalies_v1`), a rarity score (decided in
+    `find_shared_origin_activity_v1`) or any fraud-enrichment ratio (not
+    computed anywhere yet), and withholds region/email degrees for an entity
+    over budget. Those are to be composed by the GraphRAG / feature assembler,
+    which is not built yet; until then no standalone output of this query is
+    the plan's full vector.
 
 ### Gate 2 leakage findings, fixed
 
