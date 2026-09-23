@@ -90,7 +90,9 @@ def check_tigergraph() -> tuple[list[str], list[str]]:
         notes.append("credential: TG_USERNAME and TG_PASSWORD")
 
     tools = os.getenv("TG_MCP_ALLOWED_TOOLS", "").strip()
-    if tools and "vector" not in {item.strip() for item in tools.split(",")}:
+    # Either a category list ("...,vector,...") or exact tool names, of which
+    # the vector index tools carry "vector" in their name.
+    if tools and not any("vector" in item.strip() for item in tools.split(",")):
         problems.append(
             "TG_MCP_ALLOWED_TOOLS is missing 'vector'; TigerGraph vector retrieval "
             "is a required challenge component"

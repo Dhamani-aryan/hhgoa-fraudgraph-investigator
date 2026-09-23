@@ -192,6 +192,36 @@ the active benchmark memory epoch, are a separate vertex type that no retrieval
 query reads, and a live test asserts every returned id is a `CC-` case closed
 by the cutoff.
 
+### Gate 2E TigerGraph MCP and GraphToolPort
+
+- `graph/mcp_client.py` starts the official server (`tigergraph-mcp` 1.0.3,
+  MCP SDK 2.2.0) over stdio with one session held for the run:
+  `tigergraph-mcp --allowed-tools <six tools> --log-tool-calls`, credentials
+  passed only in the subprocess environment, caller identity not logged.
+- Served surface, verified live: `list_graphs`, `get_graph_schema`,
+  `is_query_installed`, `run_installed_query`, `list_vector_attributes`,
+  `get_vector_index_status`. Startup fails closed if the server serves any
+  other tool, or any tool whose name marks it as mutating or free-form; a live
+  test starts a server with `gsql` added and asserts it refuses.
+  `search_top_k_similarity` is excluded because it creates, installs and drops
+  a temporary query on every call and applies no cutoff.
+- `run_installed_query` is the one tool the server marks non-read-only. The
+  read-query allowlist (eleven installed read queries) is enforced in
+  `graph/tool_port.py` before any call is sent; `write_investigation_case_v1`
+  is refused by name.
+- `GraphToolPort`: `MCPGraphToolPort` (primary), `DirectGraphToolPort`
+  (fallback, same queries by GET), `FallbackGraphToolPort`. Every call is
+  validated (required, unknown and over-cap parameters, timestamp format,
+  1536-float finite vectors rounded to six decimals), consumes a shared
+  12-call budget including failures and fallback retries, runs under a
+  timeout, and leaves a sanitized record (trace id, tool, redacted parameters,
+  vector as dimension + SHA-256, duration, outcome, result size). Only
+  transport, timeout and availability failures fall back.
+- Live: MCP session start 1.9–3.1s; six fixture queries return canonically
+  identical results through MCP and direct; a 1 ms timeout is classified
+  unavailable and the session keeps serving. 50 unit tests with fake
+  transports, 17 live MCP tests.
+
 ### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while
