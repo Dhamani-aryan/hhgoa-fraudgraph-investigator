@@ -8,6 +8,8 @@ Gate 1 is complete and its six review findings are fixed.
 
 ### Gate 2 checklist
 
+- [x] Gate 2A query corrections: effective cutoff, region admissibility, and
+      bounding that actually bounds.
 - [x] Bounded, versioned GSQL queries with `as_of_ts` support — 6 of 9 done:
       `get_case_context_v1`, `get_transaction_window_v1`,
       `calculate_case_exposure_v1`, `get_card_baseline_v1`,
@@ -180,6 +182,33 @@ Four findings from the Gate 1 review, fixed before any Gate 2 work.
    data. The test now records every statement at the connection and asserts no
    `DROP`, `CREATE`, `ALTER` or `RUN` after any discovery failure — verified to
    fail without the fix.
+
+### Gate 2A query corrections
+
+Three further review findings, fixed and verified against the installed
+queries:
+
+1. **Shared-origin evidence tracked `as_of_ts` rather than the anchor.** A case
+   reviewed later surfaced transactions, connected cards and confirmed-fraud
+   outcomes that did not exist when the alert fired. Everything is now bounded
+   by `effective_cutoff = min(anchor_ts, as_of_ts)`, applied identically to the
+   rarity count, the shared transactions and the fraud enrichment. Three review
+   cutoffs now return identical evidence: 26 cards, 29 transactions, 10
+   fraud-enriched cards.
+2. **Region analysis answered inadmissible requests.** It now refuses a flagged
+   transaction that postdates `as_of_ts`, and refuses a flagged transaction
+   that does not belong to the supplied card. Refusing withholds every data
+   key, not just the verdict.
+3. **The advertised scan budgets bounded nothing.** GSQL runs `ACCUM` over
+   every matched vertex and applies `LIMIT` only to the returned set. Measured:
+   with the budget set to 5, the gmail.com scan still walked 45,521 rows. Work
+   is now bounded before any traversal by an O(1) precheck against the stored
+   lifetime transaction count, and gmail.com scans zero rows.
+
+The precheck reads a lifetime aggregate, which is permitted only as a resource
+gate. It is reported as `precheck_lifetime_transactions`, decides solely
+whether a scan is affordable, and is never case evidence; the rarity driving
+the supernode decision is a separate count bounded by the effective cutoff.
 
 ### Retrieval quality, measured
 
