@@ -1,40 +1,151 @@
 // find_similar_closed_cases_v1
 //
-// TigerGraph vector search over closed-case memory.
+// Stage 1 (structural candidate generation) and the TigerGraph vector search
+// of the two-stage prior-case retrieval. Stage 2 reranking is deterministic
+// Python in retrieval/case_retriever.py, over what this query returns.
 //
 // Installed rather than interpreted: vectorSearch is rejected in an
 // INTERPRET QUERY with "Unsupported Statement|TOPK_VEC_SEARCH_FUNC", so the
 // vector path must be an installed query.
 //
-// as_of_ts enforces the temporal contract at the source: a closed case is
-// admissible memory only when it closed at or before the new case's anchor
-// time. Filtering here rather than in Python means a leaking case never
-// reaches the agent at all.
+// ---------------------------------------------------------------------------
+// ADMISSIBILITY
+// ---------------------------------------------------------------------------
+// A closed case is admissible memory only when it closed at or before as_of_ts,
+// which the caller sets to the case anchor. Filtering here rather than in
+// Python means a leaking case never reaches the agent at all. exclude_case_id
+// removes the case being replayed (leave-one-case-out).
 //
-// exclude_case_id keeps a case from retrieving itself during replay.
+// Only ClosedCase vertices are searched. InvestigationCase vertices -- this
+// agent's own write-backs, including the whole active benchmark memory epoch
+// -- are a different vertex type with their own vector attribute, and nothing
+// here reads them, so benchmark memory cannot leak into retrieval.
+//
+// ---------------------------------------------------------------------------
+// STRUCTURAL CANDIDATES
+// ---------------------------------------------------------------------------
+// The admissible pool is split by outcome and searched separately, so the
+// result is contrastive by construction: the history is 4,665 confirmed fraud
+// against 900 cleared, and one search over the mixed pool would mostly return
+// fraud. Within each outcome the pool is narrowed to an exposure band
+// [min_exposure, max_exposure] when the caller gives one; if the band leaves
+// fewer than k cases the whole outcome pool is used and band_relaxed says so.
+// Cases on related_card_ids -- cards the graph already connects to this case,
+// such as WCC component members -- form a third, shared-origin pool.
+//
+// ---------------------------------------------------------------------------
+// WHAT THE SCORE IS
+// ---------------------------------------------------------------------------
+// Every returned case carries vector_cosine_distance, read from vectorSearch's
+// distance_map. The index metric is COSINE, and TigerGraph reports
+// 1 - cosine similarity: measured against a local recomputation of the same
+// embeddings the two agree to six decimals. It is an HNSW approximate search.
+//
+// ---------------------------------------------------------------------------
+// BOUNDING
+// ---------------------------------------------------------------------------
+// k is per pool and capped at 20, so at most 60 cases come back however the
+// query is called: 20 fraud, 20 cleared, 20 shared-origin.
 
 CREATE QUERY find_similar_closed_cases_v1(
   LIST<float> query_vector,
   STRING as_of_ts,
   INT k = 6,
-  STRING exclude_case_id = ""
+  STRING exclude_case_id = "",
+  DOUBLE min_exposure = 0.0,
+  DOUBLE max_exposure = 0.0,
+  SET<STRING> related_card_ids
 ) FOR GRAPH HHGOAFraud {
-  // Over-fetch, because the causal and self filters run after the search and
-  // would otherwise leave fewer than k results.
-  candidates = vectorSearch({ClosedCase.memory_embedding}, query_vector, k * 6);
+  MapAccum<VERTEX, FLOAT> @@fraud_distances, @@cleared_distances, @@related_distances;
+  MinAccum<FLOAT> @vector_distance;
+  SetAccum<STRING> @retrieved_by;
 
-  admissible = SELECT c FROM candidates:c
-    WHERE datetime_to_epoch(c.closed_at) <= datetime_to_epoch(to_datetime(as_of_ts))
-      AND c.case_id != exclude_case_id
-    LIMIT k;
+  DATETIME cutoff = to_datetime(as_of_ts);
+  INT k_eff = k;
+  IF k_eff > 20 THEN
+    k_eff = 20;
+  END;
+  IF k_eff < 1 THEN
+    k_eff = 1;
+  END;
+  BOOL use_band = max_exposure > 0.0;
+  BOOL fraud_band_relaxed = FALSE;
+  BOOL cleared_band_relaxed = FALSE;
+
+  ALL_CASES = {ClosedCase.*};
+  admissible_pool = SELECT c FROM ALL_CASES:c
+    WHERE c.closed_at <= cutoff AND c.case_id != exclude_case_id;
+
+  fraud_pool = SELECT c FROM admissible_pool:c WHERE c.outcome == "confirmed_fraud";
+  cleared_pool = SELECT c FROM admissible_pool:c WHERE c.outcome == "cleared";
+
+  IF use_band THEN
+    fraud_band = SELECT c FROM fraud_pool:c
+      WHERE c.exposure_usd >= min_exposure AND c.exposure_usd <= max_exposure;
+    IF fraud_band.size() >= k_eff THEN
+      fraud_pool = fraud_band;
+    ELSE
+      fraud_band_relaxed = TRUE;
+    END;
+    cleared_band = SELECT c FROM cleared_pool:c
+      WHERE c.exposure_usd >= min_exposure AND c.exposure_usd <= max_exposure;
+    IF cleared_band.size() >= k_eff THEN
+      cleared_pool = cleared_band;
+    ELSE
+      cleared_band_relaxed = TRUE;
+    END;
+  END;
+
+  related_pool = SELECT c FROM admissible_pool:c WHERE related_card_ids.contains(c.card_id);
+
+  PRINT as_of_ts AS as_of_ts;
+  PRINT cutoff AS admissibility_cutoff;
+  PRINT exclude_case_id AS excluded_case_id;
+  PRINT k_eff AS k_per_pool;
+  PRINT admissible_pool.size() AS admissible_pool_size;
+  PRINT fraud_pool.size() AS fraud_pool_size, cleared_pool.size() AS cleared_pool_size;
+  PRINT related_pool.size() AS shared_origin_pool_size;
+  PRINT fraud_band_relaxed AS fraud_band_relaxed, cleared_band_relaxed AS cleared_band_relaxed;
+
+  // An empty candidate_set is not searched, so an empty pool can never widen
+  // into a search over the whole index.
+  fraud_hits = SELECT c FROM fraud_pool:c WHERE FALSE;
+  cleared_hits = SELECT c FROM cleared_pool:c WHERE FALSE;
+  related_hits = SELECT c FROM related_pool:c WHERE FALSE;
+  IF fraud_pool.size() > 0 THEN
+    fraud_hits = vectorSearch({ClosedCase.memory_embedding}, query_vector, k_eff,
+      {candidate_set: fraud_pool, distance_map: @@fraud_distances});
+  END;
+  IF cleared_pool.size() > 0 THEN
+    cleared_hits = vectorSearch({ClosedCase.memory_embedding}, query_vector, k_eff,
+      {candidate_set: cleared_pool, distance_map: @@cleared_distances});
+  END;
+  IF related_pool.size() > 0 THEN
+    related_hits = vectorSearch({ClosedCase.memory_embedding}, query_vector, k_eff,
+      {candidate_set: related_pool, distance_map: @@related_distances});
+  END;
+
+  fraud_hits = SELECT c FROM fraud_hits:c
+    POST-ACCUM c.@vector_distance += @@fraud_distances.get(c), c.@retrieved_by += "vector_fraud_pool";
+  cleared_hits = SELECT c FROM cleared_hits:c
+    POST-ACCUM c.@vector_distance += @@cleared_distances.get(c), c.@retrieved_by += "vector_cleared_pool";
+  related_hits = SELECT c FROM related_hits:c
+    POST-ACCUM c.@vector_distance += @@related_distances.get(c), c.@retrieved_by += "shared_origin_pool";
+
+  admissible = fraud_hits UNION cleared_hits UNION related_hits;
 
   PRINT admissible[
     admissible.case_id,
     admissible.outcome,
     admissible.pattern,
     admissible.exposure_usd,
+    admissible.n_txns,
+    admissible.opened_at,
     admissible.closed_at,
     admissible.card_id,
-    admissible.memory_text
+    admissible.memory_text,
+    admissible.@vector_distance AS vector_cosine_distance,
+    admissible.@retrieved_by AS retrieved_by
   ];
+  PRINT admissible.size() AS returned_cases;
 }

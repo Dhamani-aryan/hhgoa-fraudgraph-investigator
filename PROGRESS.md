@@ -149,6 +149,49 @@ Gate 1 is complete and its six review findings are fixed.
     fabricated segment (real cards, another member's device) fails that check.
     Segments are identical at three later review cutoffs.
 
+### Gate 2D query-surface exit audit
+
+An audit of all eleven read queries against the plan's Phase 3 exit
+conditions found these gaps, now closed and verified on the installed queries
+(`tests/integration/test_query_surface_exit.py`, 37 live tests):
+
+19. **Unknown entities returned silent empties.** `get_card_baseline_v1` and
+    `get_transaction_window_v1` for an unknown card, `wcc_shared_origin_v1` for
+    an unknown seed and `find_shared_origin_activity_v1` for an unknown entity
+    id or kind all returned zero-valued results that read as findings ("no
+    history", "isolated", "rare"). Each now prints `refused` and a
+    `refusal_reason`. `find_region_anomalies_v1` reported a missing
+    transaction as a card mismatch; it now has `refused_flagged_not_found`.
+20. **Row caps were silent.** `get_transaction_window_v1` now reports the exact
+    `transactions_in_window` and `window_truncated`;
+    `find_shared_origin_activity_v1` reports `shared_transactions_returned` and
+    `shared_transactions_truncated`.
+21. **Shared-origin fraud enrichment was computed from the capped sample.**
+    Cards were taken from the `LIMIT`ed transaction set, so the cap could
+    understate enrichment. It now covers every in-window card; with the sample
+    capped at 1 row the enriched-card count is unchanged.
+22. **Vector retrieval exposed no score and was not contrastive.**
+    `find_similar_closed_cases_v1` now builds the structural candidate pools in
+    GSQL (causal admissibility, self-exclusion, confirmed-fraud and cleared
+    pools searched separately, an optional exposure band that relaxes with a
+    flag, and a shared-origin pool of cases on related cards), searches each
+    with `vectorSearch(..., {candidate_set, distance_map})`, and returns
+    TigerGraph's `vector_cosine_distance` per case. Measured: the distance
+    equals 1 − cosine of the stored embeddings to within 1e-4 (six decimals in
+    the probe). `k` is per pool and capped at 20. `find_policy_chunks_v1`
+    returns the same distance and caps `k` at 10. `related_card_ids` must
+    always be passed; an omitted `SET` parameter is NULL at runtime
+    (GSQL-1001).
+23. **Query vectors over GET.** The MCP `run_installed_query` tool sends
+    parameters as a GET query string. A full-precision 1536-float vector
+    returned HTTP 414; rounded to six decimals it succeeds. The tool port
+    rounds every query vector to six decimals on both paths.
+
+Retrieval is over `ClosedCase` only. `InvestigationCase` vertices, which hold
+the active benchmark memory epoch, are a separate vertex type that no retrieval
+query reads, and a live test asserts every returned id is a `CC-` case closed
+by the cutoff.
+
 ### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while

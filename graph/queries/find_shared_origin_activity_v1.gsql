@@ -85,6 +85,7 @@ CREATE QUERY find_shared_origin_activity_v1(
   BOOL refused = FALSE;
   BOOL over_budget = FALSE;
   BOOL too_common = FALSE;
+  BOOL unknown_entity = FALSE;
 
   DEVICES = {DeviceProfile.*};
   REGIONS = {BillingRegion.*};
@@ -102,6 +103,14 @@ CREATE QUERY find_shared_origin_activity_v1(
     WHERE entity_kind == "recipient_email" AND e.domain == entity_id
     POST-ACCUM @@precheck_rows += e.n_transactions;
 
+  // An unknown kind or id would otherwise scan nothing and return zero
+  // co-occurrence, which reads as "rare and unshared" -- a finding, not the
+  // absence of one.
+  IF device.size() + region.size() + email.size() == 0 THEN
+    unknown_entity = TRUE;
+    refused = TRUE;
+  END;
+
   IF @@precheck_rows > max_scan_rows THEN
     over_budget = TRUE;
     refused = TRUE;
@@ -114,8 +123,9 @@ CREATE QUERY find_shared_origin_activity_v1(
   PRINT max_scan_rows AS scan_row_budget;
   PRINT @@precheck_rows AS precheck_lifetime_transactions;
   PRINT over_budget AS refused_over_scan_budget;
+  PRINT unknown_entity AS refused_unknown_entity;
 
-  IF NOT over_budget THEN
+  IF NOT over_budget AND NOT unknown_entity THEN
     // Affordable by construction: the precheck established the row count.
     rarity_device = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
       WHERE t.ts <= effective_cutoff
@@ -138,7 +148,9 @@ CREATE QUERY find_shared_origin_activity_v1(
   PRINT too_common AS refused_as_supernode;
   PRINT refused AS refused;
 
-  IF over_budget THEN
+  IF unknown_entity THEN
+    PRINT "no entity of this kind has this id (kinds: device, region, recipient_email)" AS refusal_reason;
+  ELSE IF over_budget THEN
     PRINT "entity volume exceeds the scan budget, so its rarity cannot be established affordably" AS refusal_reason;
   ELSE
     IF too_common THEN
@@ -174,8 +186,16 @@ CREATE QUERY find_shared_origin_activity_v1(
         shared.txn_id, shared.ts, shared.amount, shared.card_id,
         shared.customer_id, shared.channel, shared.risk_score
       ] AS shared_transactions;
+      // The sample is capped at max_rows per entity; the counts above are not.
+      PRINT shared.size() AS shared_transactions_returned;
+      PRINT (@@window_transactions > shared.size()) AS shared_transactions_truncated;
 
-      connected_cards = SELECT c FROM shared:t -(MADE_BY>)- PaymentCard:c;
+      // Fraud enrichment is measured over EVERY in-window card, not only the
+      // cards in the capped sample, so the cap cannot understate enrichment.
+      // At most max_entity_cards cards reach here, since a wider entity is
+      // refused as a supernode above.
+      ALL_CARDS = {PaymentCard.*};
+      connected_cards = SELECT c FROM ALL_CARDS:c WHERE @@window_cards.contains(c.card_id);
 
       // Only fraud already confirmed at the effective cutoff. An outcome
       // reached afterwards is not evidence the investigator could have had.

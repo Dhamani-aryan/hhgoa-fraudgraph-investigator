@@ -85,6 +85,7 @@ def test_prior_case_retrieval_admits_nothing_before_the_history_exists(connectio
             "query_vector": embed("card testing small authorizations"),
             "as_of_ts": BEFORE_ALL_HISTORY,
             "k": 6,
+            "related_card_ids": [],
         },
     )
     assert rows(result, "admissible") == []
@@ -100,6 +101,7 @@ def test_prior_case_retrieval_respects_a_mid_history_cutoff(connection):
             "query_vector": embed("card testing small authorizations"),
             "as_of_ts": cutoff,
             "k": 6,
+            "related_card_ids": [],
         },
     )
     admitted = rows(result, "admissible")
@@ -117,6 +119,7 @@ def test_a_case_cannot_retrieve_itself(connection):
             "query_vector": embed("card testing small authorizations"),
             "as_of_ts": late,
             "k": 6,
+            "related_card_ids": [],
         },
     )
     top = rows(unfiltered, "admissible")
@@ -129,6 +132,7 @@ def test_a_case_cannot_retrieve_itself(connection):
             "query_vector": embed("card testing small authorizations"),
             "as_of_ts": late,
             "k": 6,
+            "related_card_ids": [],
             "exclude_case_id": excluded_id,
         },
     )

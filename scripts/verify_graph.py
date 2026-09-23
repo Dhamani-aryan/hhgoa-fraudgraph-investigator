@@ -141,7 +141,12 @@ def check_vector_search(connection, graphname: str) -> dict:
 
     cases = connection.runInstalledQuery(
         CASE_VECTOR_QUERY,
-        params={"query_vector": vector, "as_of_ts": VERIFY_AS_OF_TS, "k": 5},
+        params={
+            "query_vector": vector,
+            "as_of_ts": VERIFY_AS_OF_TS,
+            "k": 5,
+            "related_card_ids": [],
+        },
     )
     policy = connection.runInstalledQuery(
         POLICY_VECTOR_QUERY, params={"query_vector": vector, "k": 3}

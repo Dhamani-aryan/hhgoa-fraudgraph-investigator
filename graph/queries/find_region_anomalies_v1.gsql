@@ -59,9 +59,6 @@ CREATE QUERY find_region_anomalies_v1(
       flagged_region = t.addr1,
       flagged_card = t.card_id;
 
-  IF NOT found THEN
-    card_mismatch = TRUE;
-  END;
   IF found AND flagged_card != card_id THEN
     card_mismatch = TRUE;
   END;
@@ -69,15 +66,18 @@ CREATE QUERY find_region_anomalies_v1(
     after_cutoff = TRUE;
   END;
 
-  BOOL refused = (after_cutoff OR card_mismatch);
+  BOOL refused = ((NOT found) OR after_cutoff OR card_mismatch);
 
   PRINT refused AS refused;
+  PRINT (NOT found) AS refused_flagged_not_found;
   PRINT after_cutoff AS refused_flagged_after_cutoff;
   PRINT card_mismatch AS refused_card_mismatch;
   PRINT as_of_ts AS as_of_ts;
 
   IF refused THEN
-    IF after_cutoff THEN
+    IF NOT found THEN
+      PRINT "the flagged transaction does not exist" AS refusal_reason;
+    ELSE IF after_cutoff THEN
       PRINT "the flagged transaction postdates as_of_ts, so none of its detail is visible yet" AS refusal_reason;
     ELSE
       PRINT "the flagged transaction does not belong to the supplied card" AS refusal_reason;

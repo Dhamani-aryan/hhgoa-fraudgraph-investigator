@@ -21,11 +21,25 @@ CREATE QUERY get_transaction_window_v1(
   DATETIME window_start = epoch_to_datetime(datetime_to_epoch(anchor) - hours_before * 3600);
   DATETIME window_end = epoch_to_datetime(datetime_to_epoch(anchor) + hours_after * 3600);
 
+  SumAccum<INT> @@in_window;
+
   SEED = {PaymentCard.*};
   card = SELECT c FROM SEED:c WHERE c.card_id == card_id;
 
+  // An unknown card would otherwise return an empty window, which reads as
+  // "no activity" rather than "no such card".
+  BOOL card_found = card.size() > 0;
+  PRINT card_found AS card_found;
+  PRINT (NOT card_found) AS refused;
+  IF NOT card_found THEN
+    PRINT "no PaymentCard has this card_id" AS refusal_reason;
+  END;
+
+  // ACCUM runs over every matching row before LIMIT trims the output, so the
+  // in-window total is exact and truncation can be reported honestly.
   window = SELECT t FROM card:c -(MADE>)- Transaction:t
     WHERE t.ts >= window_start AND t.ts <= window_end AND t.ts <= cutoff
+    ACCUM @@in_window += 1
     ORDER BY t.ts ASC
     LIMIT max_rows;
 
@@ -36,4 +50,6 @@ CREATE QUERY get_transaction_window_v1(
   ] AS window_transactions;
 
   PRINT window.size() AS returned_rows, max_rows AS row_cap;
+  PRINT @@in_window AS transactions_in_window;
+  PRINT (@@in_window > window.size()) AS window_truncated;
 }

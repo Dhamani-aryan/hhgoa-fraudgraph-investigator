@@ -128,6 +128,14 @@ CREATE QUERY wcc_shared_origin_v1(
     ACCUM c.@visited = TRUE, c.@hop = 0
     POST-ACCUM @@component_cards += c.card_id;
 
+  // An unknown seed would otherwise come back as an isolated component of
+  // size 0, which reads as "connected to nothing" rather than "no such card".
+  PRINT (seed.size() > 0) AS seed_found;
+  PRINT (seed.size() == 0) AS refused;
+  IF seed.size() == 0 THEN
+    PRINT "no PaymentCard has this seed_card_id" AS refusal_reason;
+  END;
+
   frontier = seed;
 
   WHILE frontier.size() > 0 AND @@hops_run < max_hops AND NOT expansion_stopped_early DO

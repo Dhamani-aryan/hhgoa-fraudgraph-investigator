@@ -5,11 +5,32 @@
 // chunk_id is the anchor an evidence ref cites (policy:R2,
 // pattern:card_testing), so a retrieved chunk resolves to a real document
 // section and validator rule R21 can check the citation.
+//
+// Every hit carries vector_cosine_distance from vectorSearch's distance_map:
+// the index metric is COSINE and TigerGraph reports 1 - cosine similarity.
+// k is capped at 10; retrieval/policy_retriever.py keeps at most four of the
+// hits, chosen deterministically, so broad policy text never reaches the model.
 
 CREATE QUERY find_policy_chunks_v1(
   LIST<float> query_vector,
   INT k = 4
 ) FOR GRAPH HHGOAFraud {
-  hits = vectorSearch({PolicyChunk.policy_embedding}, query_vector, k);
-  PRINT hits[hits.chunk_id, hits.anchor, hits.title, hits.body, hits.source_document];
+  MapAccum<VERTEX, FLOAT> @@distances;
+  MinAccum<FLOAT> @vector_distance;
+
+  INT k_eff = k;
+  IF k_eff > 10 THEN
+    k_eff = 10;
+  END;
+  IF k_eff < 1 THEN
+    k_eff = 1;
+  END;
+
+  hits = vectorSearch({PolicyChunk.policy_embedding}, query_vector, k_eff,
+    {distance_map: @@distances});
+  hits = SELECT p FROM hits:p POST-ACCUM p.@vector_distance += @@distances.get(p);
+
+  PRINT hits[hits.chunk_id, hits.anchor, hits.title, hits.body, hits.source_document,
+             hits.@vector_distance AS vector_cosine_distance];
+  PRINT k_eff AS k_returned_cap;
 }

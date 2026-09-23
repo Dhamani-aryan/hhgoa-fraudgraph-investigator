@@ -62,11 +62,18 @@ CREATE QUERY get_card_baseline_v1(
     scan_skipped = TRUE;
   END;
 
+  // An unknown card would otherwise read as a card with no history, which is
+  // a finding ("never used") rather than an absence of data.
+  BOOL card_found = card.size() > 0;
+  PRINT card_found AS card_found;
+  PRINT (NOT card_found) AS refused;
   PRINT @@precheck_rows AS precheck_lifetime_transactions;
   PRINT max_scan_rows AS scan_row_budget;
   PRINT scan_skipped AS scan_skipped;
 
-  IF scan_skipped THEN
+  IF NOT card_found THEN
+    PRINT "no PaymentCard has this card_id, so no baseline exists" AS refusal_reason;
+  ELSE IF scan_skipped THEN
     PRINT "card volume exceeds the scan budget, so no baseline was computed" AS skip_reason;
   ELSE
 
