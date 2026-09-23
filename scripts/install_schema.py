@@ -172,20 +172,59 @@ class CatalogUnavailable(RuntimeError):
     """The catalog could not be read or its membership could not be parsed."""
 
 
+#: A real LS listing contains at least one of these. Requiring a positive
+#: marker is fail-closed: an unrecognised response is refused rather than
+#: parsed as a catalog describing nothing.
+CATALOG_EXPECTED_MARKERS = ("global vertices", "vertex types:", "- graph ")
+
+#: gsql reports many failures as ordinary text with a success status, so a
+#: response can be an error without raising.
+CATALOG_ERROR_MARKERS = (
+    "error:",
+    "semantic check fails",
+    "not using any graphs",
+    "exception",
+    "failed to",
+    "could not",
+)
+
+
 def read_catalog(connection, config) -> str:
     """Read the catalog once, or refuse.
 
-    Never returns a placeholder. An unreadable catalog previously came back as
-    an empty string and then as empty membership, which is indistinguishable
-    from a graph that genuinely holds nothing -- and that is what --recreate
-    keys on before dropping.
+    Never returns a placeholder, and never accepts a response it cannot
+    recognise as a catalog. An empty or error-text response is exactly as
+    uninformative as a raised exception: both leave the graph's contents
+    unknown, and --recreate keys on that before dropping anything.
     """
     try:
-        return gsql(connection, "LS", GLOBAL_SCOPE)
+        text = gsql(connection, "LS", GLOBAL_SCOPE)
     except Exception as error:  # noqa: BLE001 - re-raised redacted
         raise CatalogUnavailable(
             f"could not read the catalog: {redact(str(error), config)}"
         ) from None
+
+    if not text or not text.strip():
+        raise CatalogUnavailable("the catalog response was blank")
+
+    lowered = text.lower()
+    for marker in CATALOG_ERROR_MARKERS:
+        if marker in lowered:
+            raise CatalogUnavailable(
+                f"the catalog response reported an error: "
+                f"{redact(' '.join(text.split()), config)[:200]}"
+            )
+    if not any(marker in lowered for marker in CATALOG_EXPECTED_MARKERS):
+        raise CatalogUnavailable(
+            f"the catalog response was not a recognisable listing: "
+            f"{redact(' '.join(text.split()), config)[:200]}"
+        )
+    return text
+
+
+def parse_global_vertex_types(catalog_text: str) -> set[str]:
+    """Global vertex types named in the catalog listing."""
+    return set(re.findall(r"- VERTEX (\w+)\(", catalog_text))
 
 
 def parse_graph_membership(catalog_text: str, graphname: str) -> tuple[bool, set[str], set[str]]:
@@ -371,9 +410,8 @@ def main() -> int:
     # first to establish that the graph exists and the second to fail into empty
     # membership, which --recreate then read as an empty graph.
     try:
-        present, vertices, _edges = parse_graph_membership(
-            read_catalog(connection, config), graphname
-        )
+        catalog_text = read_catalog(connection, config)
+        present, vertices, _edges = parse_graph_membership(catalog_text, graphname)
     except CatalogUnavailable as error:
         print(f"FAILED: {error}")
         print("  Nothing was changed. Retry once the workspace is responsive.")
@@ -427,6 +465,25 @@ def main() -> int:
         # leaves this project's types behind and the next run clashes with
         # itself. Edges are dropped first because a vertex in use cannot go.
         # Types this project never created are left alone.
+        #
+        # A global type outlives the graph and keeps its data, so a graph that
+        # was dropped by hand can leave 590,742 Transaction vertices reachable
+        # through the type alone. Count before dropping, and refuse on any
+        # count that cannot be made.
+        leftover = parse_global_vertex_types(catalog_text) & EXPECTED_VERTEX_TYPES
+        if leftover:
+            try:
+                leftover_count = total_vertices(connection, leftover)
+            except VertexCountUnavailable as error:
+                print(f"REFUSED: cannot confirm this project's global types are empty. {error}")
+                print("  Nothing was changed. Retry once the workspace is responsive.")
+                return 1
+            if leftover_count > 0:
+                print(
+                    f"REFUSED: this project's global types still hold {leftover_count:,} vertices."
+                )
+                print("  Drop them deliberately in Savanna if you mean to discard them.")
+                return 1
         print("  dropping this project's global types from any earlier run")
         for name in EXPECTED_EDGE_TYPES:
             try:

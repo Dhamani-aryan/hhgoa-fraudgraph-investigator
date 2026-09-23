@@ -203,18 +203,44 @@ GRAPH_LINE = (
 )
 
 
+#: Any of these, issued after discovery failed, is an unsafe mutation.
+MUTATING_KEYWORDS = ("DROP", "CREATE", "ALTER", "RUN")
+
+
 class _Catalog:
-    """A connection stand-in whose LS response the test controls."""
+    """A connection stand-in that records every statement it is given.
+
+    Recording at the connection is deliberate. An earlier version of this test
+    spied on run_gsql and therefore never saw the global DROP EDGE and
+    DROP VERTEX loop, which calls gsql() directly -- so the test passed while
+    destructive statements were being issued.
+    """
 
     def __init__(self, response):
         self.response = response
         self.calls = 0
+        self.statements: list[str] = []
 
     def gsql(self, statement, graphname=None):
         self.calls += 1
+        self.statements.append(statement)
         if isinstance(self.response, Exception):
             raise self.response
         return self.response
+
+    def getVertexCount(self, name, realtime=False):  # noqa: N802 - driver's name
+        raise AssertionError("counts must not be attempted after discovery fails")
+
+    @property
+    def mutations(self) -> list[str]:
+        return [
+            statement
+            for statement in self.statements
+            if any(
+                statement.strip().upper().startswith(keyword) or f" {keyword} " in statement.upper()
+                for keyword in MUTATING_KEYWORDS
+            )
+        ]
 
 
 def test_membership_parses_from_one_catalog_read():
@@ -272,33 +298,47 @@ def test_the_catalog_is_read_once_per_discovery():
         RuntimeError("Starting workspace"),
         "  - Graph HHGOAFraud",
         "",
+        "   " + chr(10) + "  " + chr(9) + " ",
+        "Error: Currently not using any graphs!",
+        "Semantic Check Fails: something went wrong",
+        "totally unrecognised response",
     ],
-    ids=["gateway-timeout", "cold-start", "truncated-line", "empty-response"],
+    ids=[
+        "gateway-timeout",
+        "cold-start",
+        "truncated-line",
+        "empty-response",
+        "whitespace-response",
+        "gsql-error-text",
+        "semantic-check-text",
+        "unrecognised-response",
+    ],
 )
-def test_discovery_failure_never_reaches_drop_graph(monkeypatch, response):
-    """The finding, end to end: no discovery failure may permit a drop.
+def test_no_mutation_is_attempted_after_discovery_fails(monkeypatch, response):
+    """The finding, end to end.
 
     main() is run with --recreate against a connection whose catalog is
-    unusable. DROP GRAPH must never be issued and the run must exit non-zero.
+    unusable. Every statement the connection receives is recorded, and no
+    DROP, CREATE, ALTER or RUN may appear -- not only DROP GRAPH. The global
+    DROP EDGE and DROP VERTEX loop is gated on --recreate rather than on the
+    graph being present, so a response parsed as "graph absent" previously
+    reached it.
     """
     import scripts.install_schema as installer
 
-    dropped: list[str] = []
-
-    def spy_run_gsql(connection, statements, config, label, scope):
-        if "DROP GRAPH" in statements.upper():
-            dropped.append(statements)
-        return ""
-
-    monkeypatch.setattr(installer, "run_gsql", spy_run_gsql)
+    connection = _Catalog(response)
     monkeypatch.setattr(installer, "load_config", lambda: CONFIG)
-    monkeypatch.setattr(installer, "connect", lambda config: _Catalog(response))
+    monkeypatch.setattr(installer, "connect", lambda config: connection)
     monkeypatch.setattr(sys, "argv", ["install_schema.py", "--recreate"])
 
     exit_code = installer.main()
 
-    assert dropped == [], f"DROP GRAPH was issued despite {response!r}"
+    assert connection.mutations == [], (
+        f"mutating statements issued despite {response!r}: {connection.mutations}"
+    )
     assert exit_code == 1
+    # Only the single discovery read should ever have been attempted.
+    assert connection.calls == 1
 
 
 def test_a_genuinely_empty_graph_is_still_droppable(monkeypatch):
