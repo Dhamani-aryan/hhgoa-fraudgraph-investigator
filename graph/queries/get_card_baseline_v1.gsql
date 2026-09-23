@@ -13,11 +13,31 @@
 //
 // Everything is bounded by as_of_ts. A baseline built from later activity
 // would describe behaviour the investigator could not have known.
+//
+// BOUNDING. GSQL runs ACCUM over every matched vertex and applies LIMIT only to
+// the returned set, so a LIMIT bounds neither the traversal nor a ListAccum
+// filled inside ACCUM. An earlier version carried a max_amounts LIMIT that did
+// neither: asking for 5 amounts still returned all 53.
+//
+// The scan is now gated before traversal by an O(1) precheck against the card's
+// stored lifetime transaction count. A card above max_scan_rows is not walked,
+// and the query says so rather than returning a silently partial baseline --
+// a truncated amount list would produce a median and MAD for a card whose
+// behaviour was only half read, which is worse than no baseline.
+//
+// The amounts list is therefore bounded by that precheck. For this dataset the
+// largest card holds 14,891 transactions, the 99th percentile is 726, and only
+// 12 cards exceed 5,000, so the default budget of 20,000 admits every card
+// while remaining a real bound rather than a decorative one.
+//
+// That stored count is a RESOURCE measure, never case evidence: it is reported
+// as precheck_lifetime_transactions, it decides only whether the scan is
+// affordable, and every statistic that is evidence is computed to the cutoff.
 
 CREATE QUERY get_card_baseline_v1(
   STRING card_id,
   STRING as_of_ts,
-  INT max_amounts = 2000
+  INT max_scan_rows = 20000
 ) FOR GRAPH HHGOAFraud {
   DATETIME cutoff = to_datetime(as_of_ts);
   INT anchor_epoch = datetime_to_epoch(cutoff);
@@ -31,8 +51,24 @@ CREATE QUERY get_card_baseline_v1(
   SetAccum<STRING> @@regions, @@product_codes, @@purchaser_domains;
   MapAccum<STRING, SumAccum<INT>> @@region_counts, @@product_counts;
 
+  SumAccum<INT> @@precheck_rows;
+  BOOL scan_skipped = FALSE;
+
   SEED = {PaymentCard.*};
-  card = SELECT c FROM SEED:c WHERE c.card_id == card_id;
+  card = SELECT c FROM SEED:c WHERE c.card_id == card_id
+    POST-ACCUM @@precheck_rows += c.n_transactions;
+
+  IF @@precheck_rows > max_scan_rows THEN
+    scan_skipped = TRUE;
+  END;
+
+  PRINT @@precheck_rows AS precheck_lifetime_transactions;
+  PRINT max_scan_rows AS scan_row_budget;
+  PRINT scan_skipped AS scan_skipped;
+
+  IF scan_skipped THEN
+    PRINT "card volume exceeds the scan budget, so no baseline was computed" AS skip_reason;
+  ELSE
 
   history = SELECT t FROM card:c -(MADE>)- Transaction:t
     WHERE t.ts <= cutoff
@@ -52,8 +88,7 @@ CREATE QUERY get_card_baseline_v1(
       CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 3600 THEN @@n_1h += 1 END,
       CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 86400 THEN @@n_24h += 1 END,
       CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 604800 THEN @@n_7d += 1 END,
-      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 2592000 THEN @@n_30d += 1 END
-    LIMIT max_amounts;
+      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 2592000 THEN @@n_30d += 1 END;
 
   PRINT @@n_lifetime AS n_transactions_to_anchor;
   PRINT @@n_1h AS n_last_1h, @@n_24h AS n_last_24h,
@@ -76,4 +111,6 @@ CREATE QUERY get_card_baseline_v1(
   PRINT known_devices[
     known_devices.device_id, known_devices.label, known_devices.signature_strength
   ] AS known_devices;
+
+  END;
 }
