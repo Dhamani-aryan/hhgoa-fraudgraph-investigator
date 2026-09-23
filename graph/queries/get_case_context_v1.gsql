@@ -2,35 +2,50 @@
 //
 // The trigger package: the flagged transaction and everything one hop from it.
 //
-// TEMPORAL RULE, and the reason this query looks more laborious than it needs
-// to: no stored aggregate is returned as runtime evidence.
+// ---------------------------------------------------------------------------
+// EFFECTIVE EVIDENCE CUTOFF
+// ---------------------------------------------------------------------------
+// Everything is bounded by effective_cutoff = min(flagged transaction ts,
+// as_of_ts), and the same bound is applied to card history, cardholder
+// history, device history, adjacent transactions and prior closed cases.
 //
-// Card.n_transactions, Cardholder.last_seen, DeviceProfile.n_cards and the
-// like are computed over the whole six-month dataset at load time. Returning
-// them tells the investigator what happened after the alert -- an earlier
+// as_of_ts alone is not enough. It equals the anchor only when a case is
+// reviewed the moment it is triggered; any later review would otherwise widen
+// every one of those five traversals and show the investigator activity that
+// came after the alert. Bounding by the flagged transaction's own timestamp
+// makes the evidence a property of the case rather than of when someone
+// happened to look at it.
+//
+// The query refuses outright when the flagged transaction postdates as_of_ts,
+// or when it does not exist. A caller asking about a transaction that had not
+// happened has a bug, and answering would hand it the future.
+//
+// ---------------------------------------------------------------------------
+// NO STORED AGGREGATE IS RETURNED AS EVIDENCE
+// ---------------------------------------------------------------------------
+// Card.n_transactions, Cardholder.last_seen, DeviceProfile.n_cards and the like
+// are computed over the whole six-month dataset at load time. An earlier
 // version answered a 2016-11-11 case with last_seen 2016-12-25 and a lifetime
 // count of 59 against the 53 that existed at the anchor. Every count here is
-// therefore recomputed by traversal against as_of_ts, and the stored
-// attributes are deliberately not printed.
+// recomputed by traversal to the effective cutoff, and those attributes are not
+// printed.
 //
-// The query also refuses outright when the flagged transaction postdates
-// as_of_ts, rather than returning it. A caller that asks about a transaction
-// which had not happened yet has a bug, and answering would hand it the future.
+// ---------------------------------------------------------------------------
+// BOUNDING
+// ---------------------------------------------------------------------------
+// GSQL runs ACCUM over every matched vertex and applies LIMIT only to the
+// returned set, so a LIMIT does not bound traversal work. The device scan is
+// therefore gated by an O(1) precheck against the device's stored lifetime
+// transaction count and skipped when that exceeds max_scan_rows.
 //
-// BOUNDING. GSQL runs ACCUM over every matched vertex and applies LIMIT only to
-// the returned set, so a LIMIT does not bound traversal work. An earlier
-// version of this query carried a max_scan LIMIT that bounded nothing.
+// That stored figure is a RESOURCE measure, never case evidence: it is
+// reported as device_precheck_lifetime_transactions, it decides only whether a
+// scan is affordable, and every count that is evidence is bounded by the
+// effective cutoff.
 //
-// The device history scan is therefore gated by an O(1) precheck against the
-// device's stored lifetime transaction count, and skipped when that exceeds
-// max_scan_rows. That stored figure is a RESOURCE measure, never case evidence:
-// it is reported as device_precheck_lifetime_transactions, it decides only
-// whether the scan is affordable, and the counts that are evidence are all
-// computed to the cutoff.
-//
-// The card and cardholder scans need no gate. A card holds at most a few
-// thousand transactions in this dataset, which is affordable by construction,
-// and no LIMIT is claimed for them.
+// The card and cardholder scans carry no budget and claim none. The largest
+// card in this dataset holds 14,891 transactions and the 99th percentile is
+// 726, so both are affordable by construction.
 
 CREATE QUERY get_case_context_v1(
   STRING flagged_txn_id,
@@ -38,32 +53,50 @@ CREATE QUERY get_case_context_v1(
   INT max_adjacent = 40,
   INT max_scan_rows = 20000
 ) FOR GRAPH HHGOAFraud {
-  DATETIME cutoff = to_datetime(as_of_ts);
-  BOOL flagged_is_after_cutoff = FALSE;
+  DATETIME as_of = to_datetime(as_of_ts);
   DATETIME flagged_ts;
+  BOOL found = FALSE;
+  BOOL after_cutoff = FALSE;
 
-  SumAccum<INT> @@card_txns_to_anchor, @@holder_txns_to_anchor;
+  SumAccum<INT> @@card_txns, @@holder_txns;
   MinAccum<DATETIME> @@card_first_seen;
   MaxAccum<DATETIME> @@card_last_seen;
-  SumAccum<INT> @@device_txns_to_anchor;
-  SetAccum<STRING> @@device_cards_to_anchor;
+  SumAccum<INT> @@device_txns;
+  SetAccum<STRING> @@device_cards;
   SumAccum<INT> @@device_precheck_rows;
   BOOL device_scan_skipped = FALSE;
 
   SEED = {Transaction.*};
   flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id
-    POST-ACCUM flagged_ts = t.ts;
+    POST-ACCUM found = TRUE, flagged_ts = t.ts;
 
-  probe = SELECT t FROM flagged:t WHERE t.ts > cutoff
-    POST-ACCUM flagged_is_after_cutoff = TRUE;
+  IF found AND datetime_to_epoch(flagged_ts) > datetime_to_epoch(as_of) THEN
+    after_cutoff = TRUE;
+  END;
+  BOOL refused = (NOT found) OR after_cutoff;
 
-  PRINT flagged_is_after_cutoff AS flagged_after_cutoff;
+  // min(flagged ts, as_of). The refusal above makes as_of the larger of the
+  // two whenever the request is admissible, but the min is computed rather
+  // than assumed so the bound cannot drift if that guard ever changes.
+  DATETIME effective_cutoff = as_of;
+  IF found AND datetime_to_epoch(flagged_ts) < datetime_to_epoch(as_of) THEN
+    effective_cutoff = flagged_ts;
+  END;
+
+  PRINT refused AS refused;
+  PRINT after_cutoff AS flagged_after_cutoff;
+  PRINT (NOT found) AS flagged_not_found;
   PRINT as_of_ts AS as_of_ts;
 
-  IF flagged_is_after_cutoff THEN
-    PRINT "the flagged transaction postdates as_of_ts, so it is not yet visible"
-      AS refusal_reason;
+  IF refused THEN
+    IF after_cutoff THEN
+      PRINT "the flagged transaction postdates as_of_ts, so it is not yet visible" AS refusal_reason;
+    ELSE
+      PRINT "the flagged transaction does not exist" AS refusal_reason;
+    END;
   ELSE
+    PRINT effective_cutoff AS effective_cutoff;
+
     PRINT flagged[
       flagged.txn_id, flagged.ts, flagged.amount, flagged.product_cd,
       flagged.channel, flagged.risk_score, flagged.addr1, flagged.addr2,
@@ -72,8 +105,6 @@ CREATE QUERY get_case_context_v1(
     ] AS flagged_transaction;
 
     card = SELECT c FROM flagged:t -(MADE_BY>)- PaymentCard:c;
-    // Identity only. n_transactions, first_seen and last_seen are lifetime
-    // values and are replaced below by as-of counts.
     PRINT card[card.card_id, card.customer_id, card.card_type, card.card_network]
       AS card;
 
@@ -81,47 +112,37 @@ CREATE QUERY get_case_context_v1(
     PRINT holder[holder.customer_id] AS cardholder;
 
     card_history = SELECT t FROM card:c -(MADE>)- Transaction:t
-      WHERE t.ts <= cutoff
-      ACCUM
-        @@card_txns_to_anchor += 1,
-        @@card_first_seen += t.ts,
-        @@card_last_seen += t.ts;
-
-    PRINT @@card_txns_to_anchor AS card_transactions_to_anchor;
+      WHERE t.ts <= effective_cutoff
+      ACCUM @@card_txns += 1, @@card_first_seen += t.ts, @@card_last_seen += t.ts;
+    PRINT @@card_txns AS card_transactions_to_anchor;
     PRINT @@card_first_seen AS card_first_seen_to_anchor;
     PRINT @@card_last_seen AS card_last_seen_to_anchor;
 
     holder_history = SELECT t FROM holder:h -(OWNS>)- PaymentCard:c -(MADE>)- Transaction:t
-      WHERE t.ts <= cutoff
-      ACCUM @@holder_txns_to_anchor += 1;
-    PRINT @@holder_txns_to_anchor AS cardholder_transactions_to_anchor;
+      WHERE t.ts <= effective_cutoff
+      ACCUM @@holder_txns += 1;
+    PRINT @@holder_txns AS cardholder_transactions_to_anchor;
 
     device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d
       POST-ACCUM @@device_precheck_rows += d.n_transactions;
-
     IF @@device_precheck_rows > max_scan_rows THEN
       device_scan_skipped = TRUE;
     END;
-    // new_or_found and signature_strength describe this transaction's own
-    // identity record, so they carry no future information.
+
     PRINT device[
       device.device_id, device.label, device.device_type, device.new_or_found,
       device.proxy_category, device.match_status, device.signature_strength
     ] AS device;
-
     PRINT @@device_precheck_rows AS device_precheck_lifetime_transactions;
     PRINT max_scan_rows AS scan_row_budget;
     PRINT device_scan_skipped AS device_scan_skipped;
 
     IF NOT device_scan_skipped THEN
-      // Affordable by construction: the precheck established the row count.
       device_history = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
-        WHERE t.ts <= cutoff
-        ACCUM
-          @@device_txns_to_anchor += 1,
-          @@device_cards_to_anchor += t.card_id;
-      PRINT @@device_txns_to_anchor AS device_transactions_to_anchor;
-      PRINT @@device_cards_to_anchor.size() AS device_cards_to_anchor;
+        WHERE t.ts <= effective_cutoff
+        ACCUM @@device_txns += 1, @@device_cards += t.card_id;
+      PRINT @@device_txns AS device_transactions_to_anchor;
+      PRINT @@device_cards.size() AS device_cards_to_anchor;
     END;
 
     region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
@@ -134,17 +155,16 @@ CREATE QUERY get_case_context_v1(
     PRINT recipient[recipient.domain] AS recipient_email;
 
     adjacent = SELECT t FROM card:c -(MADE>)- Transaction:t
-      WHERE t.txn_id != flagged_txn_id AND t.ts <= cutoff
+      WHERE t.txn_id != flagged_txn_id AND t.ts <= effective_cutoff
       ORDER BY t.ts DESC
       LIMIT max_adjacent;
-
     PRINT adjacent[
       adjacent.txn_id, adjacent.ts, adjacent.amount, adjacent.product_cd,
       adjacent.channel, adjacent.risk_score, adjacent.addr1
     ] AS adjacent_transactions;
 
     prior = SELECT k FROM card:c -(CARD_HAS_CASE>)- ClosedCase:k
-      WHERE k.closed_at <= cutoff;
+      WHERE k.closed_at <= effective_cutoff;
     PRINT prior[
       prior.case_id, prior.outcome, prior.pattern, prior.closed_at,
       prior.exposure_usd
