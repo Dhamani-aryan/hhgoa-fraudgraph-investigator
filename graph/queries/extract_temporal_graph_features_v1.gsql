@@ -31,11 +31,37 @@
 //
 // Windowed degrees use 1h, 24h, 7d and to-cutoff, which is the range over which
 // card testing, bursts and slow compromise respectively become visible.
+//
+// ---------------------------------------------------------------------------
+// COVERAGE AGAINST THE PLAN'S FEATURE LIST
+// ---------------------------------------------------------------------------
+// Computed here:
+//   device, email and region degree at 1h / 24h / 7d / to-cutoff
+//   distinct connected cards and customers on the device
+//   count AND recency of confirmed-fraud and cleared neighbours
+//   burst count, region novelty, device novelty
+//   shared-entity reach, which is the rarity input
+//
+// Computed elsewhere, deliberately, and named here so the split is explicit:
+//   amount MAD and the robust amount percentiles come from the amount list
+//     returned by get_card_baseline_v1 and are computed in Python, where a
+//     zero MAD can be handled explicitly. GSQL has no median.
+//   time-local weakly connected component size, two-hop reachability and the
+//     capped provenance paths come from wcc_shared_origin_v1, which is the
+//     graph algorithm and already returns per-member devices, hop and
+//     predecessor cards.
+//   home-region overlap comes from find_region_anomalies_v1, which separates a
+//     trip from a clone by reporting concurrent activity in another region.
+//
+// Nothing in the plan's list is silently missing. A feature that lives in
+// another query is stated above rather than reimplemented here, so the scorer
+// assembles one vector from named sources instead of two disagreeing ones.
 
 CREATE QUERY extract_temporal_graph_features_v1(
   STRING flagged_txn_id,
   STRING as_of_ts,
   INT shared_window_hours = 168,
+  INT burst_gap_seconds = 600,
   INT max_scan_rows = 20000
 ) FOR GRAPH HHGOAFraud {
   DATETIME as_of = to_datetime(as_of_ts);
@@ -49,6 +75,11 @@ CREATE QUERY extract_temporal_graph_features_v1(
   SetAccum<STRING> @@device_customers_window;
   SumAccum<INT> @@region_to_cutoff;
   SetAccum<STRING> @@region_cards_window;
+  SumAccum<INT> @@region_1h, @@region_24h, @@region_7d, @@region_all;
+  SumAccum<INT> @@email_1h, @@email_24h, @@email_7d, @@email_all;
+  SetAccum<STRING> @@email_cards_window;
+  SumAccum<INT> @@burst_count;
+  MaxAccum<DATETIME> @@latest_cleared_neighbour_closure;
   SumAccum<INT> @@card_region_prior;
   SumAccum<INT> @@card_device_prior;
   SetAccum<STRING> @@fraud_neighbour_cards;
@@ -162,23 +193,68 @@ CREATE QUERY extract_temporal_graph_features_v1(
             @@latest_fraud_neighbour_closure += k.closed_at
           END,
           CASE WHEN k.outcome == "cleared" THEN
-            @@cleared_neighbour_cards += k.card_id END;
+            @@cleared_neighbour_cards += k.card_id,
+            @@latest_cleared_neighbour_closure += k.closed_at END;
 
       PRINT @@fraud_neighbour_cards.size() AS device_fraud_neighbour_cards;
       PRINT @@cleared_neighbour_cards.size() AS device_cleared_neighbour_cards;
       PRINT @@fraud_neighbour_cards AS fraud_neighbour_card_ids;
       PRINT @@latest_fraud_neighbour_closure AS latest_fraud_neighbour_closure;
+      // Recency matters for both outcomes: a fraud neighbour from last week and
+      // one from four months ago are not the same evidence, and the same is
+      // true of a neighbour that was investigated and cleared.
+      PRINT @@latest_cleared_neighbour_closure AS latest_cleared_neighbour_closure;
     END;
 
-    // Region reach in-window, the supernode check the caller needs to discount
-    // a common billing region.
+    // Region degree at the same four scales as the device, plus the in-window
+    // reach the caller needs to discount a common billing region.
     region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
     region_hist = SELECT t FROM region:r -(BILLS>)- Transaction:t
       WHERE t.ts <= effective_cutoff
-        AND abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds
-      ACCUM @@region_to_cutoff += 1, @@region_cards_window += t.card_id;
+      ACCUM
+        @@region_all += 1,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@region_1h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@region_24h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@region_7d += 1 END,
+        CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
+          @@region_to_cutoff += 1, @@region_cards_window += t.card_id END;
 
+    PRINT @@region_all AS region_degree_to_cutoff;
+    PRINT @@region_1h AS region_degree_1h, @@region_24h AS region_degree_24h,
+          @@region_7d AS region_degree_7d;
     PRINT @@region_to_cutoff AS region_transactions_in_window;
     PRINT @@region_cards_window.size() AS region_distinct_cards_in_window;
+
+    // Purchaser email domain, the third shared entity. Degrees at the same
+    // scales, so a common free-mail domain can be discounted the same way.
+    email = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e;
+    email_hist = SELECT t FROM email:e -(PURCHASED_BY_DOMAIN>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+      ACCUM
+        @@email_all += 1,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@email_1h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@email_24h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@email_7d += 1 END,
+        CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
+          @@email_cards_window += t.card_id END;
+
+    PRINT email[email.domain] AS purchaser_email_domain;
+    PRINT @@email_all AS email_degree_to_cutoff;
+    PRINT @@email_1h AS email_degree_1h, @@email_24h AS email_degree_24h,
+          @@email_7d AS email_degree_7d;
+    PRINT @@email_cards_window.size() AS email_distinct_cards_in_window;
+
+    // Burst count: consecutive transactions on this card separated by less than
+    // burst_gap_seconds, read from the gap_seconds precomputed on the NEXT
+    // chain. This is the shape card testing makes -- several authorizations in
+    // quick succession -- and it is a different signal from a high count over an
+    // hour, which a steady shopper also produces.
+    bursts = SELECT t2 FROM card:c -(MADE>)- Transaction:t1 -(NEXT>:e)- Transaction:t2
+      WHERE t1.ts <= effective_cutoff AND t2.ts <= effective_cutoff
+        AND e.gap_seconds <= burst_gap_seconds
+      ACCUM @@burst_count += 1;
+
+    PRINT @@burst_count AS burst_transitions;
+    PRINT burst_gap_seconds AS burst_gap_seconds;
   END;
 }

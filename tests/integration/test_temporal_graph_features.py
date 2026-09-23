@@ -149,3 +149,56 @@ def test_the_precheck_is_a_resource_figure_not_a_feature(connection):
     result = features(connection)
     assert scalar(result, "device_precheck_lifetime_transactions") == 621
     assert scalar(result, "device_degree_to_cutoff") == 299
+
+
+# --- coverage against the plan's feature list -------------------------------
+
+
+def test_all_three_shared_entities_report_degree_at_four_scales(connection):
+    """The plan asks for device, email AND region degree; email was missing."""
+    result = features(connection)
+    for entity in ("device", "email", "region"):
+        for scale in ("to_cutoff", "1h", "24h", "7d"):
+            key = f"{entity}_degree_{scale}"
+            assert scalar(result, key) is not None, f"{key} is missing"
+
+
+def test_both_neighbour_outcomes_report_recency(connection):
+    """A fraud neighbour from last week is not the same evidence as one from May.
+
+    The same is true of a neighbour that was investigated and cleared, and only
+    the fraud side carried a recency before.
+    """
+    result = features(connection)
+    assert scalar(result, "latest_fraud_neighbour_closure")
+    assert scalar(result, "latest_cleared_neighbour_closure")
+
+
+def test_neighbour_recencies_respect_the_cutoff(connection):
+    result = features(connection, as_of="2016-12-31 23:59:59")
+    effective = scalar(result, "effective_cutoff")
+    for key in ("latest_fraud_neighbour_closure", "latest_cleared_neighbour_closure"):
+        value = scalar(result, key)
+        if value:
+            assert value <= effective
+
+
+def test_burst_count_is_reported_and_bounded_by_the_gap(connection):
+    """Bursts are a different signal from a high hourly count."""
+    tight = features(connection, burst_gap_seconds=60)
+    loose = features(connection, burst_gap_seconds=86400)
+    assert scalar(tight, "burst_transitions") <= scalar(loose, "burst_transitions")
+    assert scalar(loose, "burst_transitions") > 0
+
+
+def test_email_reach_exposes_a_common_domain(connection):
+    """anonymous.com is a free-mail equivalent and must be discountable."""
+    result = features(connection)
+    assert scalar(result, "email_distinct_cards_in_window") > 100
+
+
+def test_the_vector_is_substantial(connection):
+    """Guards against a feature silently disappearing from the payload."""
+    from graph.result_normalizers import normalize_result
+
+    assert len(normalize_result(features(connection))) >= 40
