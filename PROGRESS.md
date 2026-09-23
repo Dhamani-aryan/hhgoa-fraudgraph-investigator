@@ -44,8 +44,30 @@ Gate 1 is complete and its six review findings are fixed.
 8. **Case write edges are additive.** Re-writing with fewer identifiers leaves
    the earlier edges, because an upsert cannot know what was withdrawn.
    Documented and pinned by a test rather than described as full idempotence.
+9. **WCC eligibility counted transactions, not distinct cards.** The parameter
+   is `max_device_cards` but the accumulator incremented per transaction, so
+   one card making fifty purchases on its own laptop looked like fifty cards
+   and was excluded as a supernode. It now accumulates a set of card ids.
+10. **WCC costed every device in the graph.** Eligibility scanned all 9,706
+    DeviceProfiles and their full history on every call. It is now evaluated
+    per hop for the devices the frontier actually reaches, and cached: 87
+    devices considered instead of 9,706, in 0.59s. Members also record the
+    predecessor cards they were reached from, so a multi-hop path is
+    reconstructible rather than merely asserted.
+11. **`INV_SIMILAR_TO` stored 0.0 and an empty string.** The edge exists to say
+    why a case was cited, and placeholders made it unable to answer that.
+    Real similarity and reasons are stored and read back, applied by
+    `graph/case_writer.py` because GSQL rejects a MAP accessor inside `ACCUM`.
+12. **Unmatched device, policy and on-card identifiers were dropped silently.**
+    All five collections plus the on-card id are now reported, and a partial
+    write is a failure rather than a receipt: `WriteReceipt.ok` is true only
+    when the graph holds everything the answer claims.
+13. **The feature vector was incomplete with no note saying so.** Email and
+    region degrees, cleared-neighbour recency and burst count were added, and
+    the features that deliberately live in other queries are now named rather
+    than left ambiguous.
 
-### Gate 2 leakage findings, fixed### Gate 2 leakage findings, fixed
+### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while
 handing the investigator information from after the alert:
