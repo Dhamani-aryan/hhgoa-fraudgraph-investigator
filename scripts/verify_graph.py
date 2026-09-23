@@ -122,7 +122,11 @@ def check_traversal(connection, graphname: str) -> dict:
     problems = []
     if reached.get("cards", 0) != 1:
         problems.append(f"card {SAMPLE_CARD} not found")
-    for key in ("cardholders", "transactions", "regions"):
+    # The Gate 1 exit names device and history traversal explicitly, so both
+    # are required rather than merely recorded. SAMPLE_CARD is chosen to have
+    # online transactions and a prior closed case; if a future sample card has
+    # neither, the right fix is a different card, not a weaker assertion.
+    for key in ("cardholders", "transactions", "devices", "regions", "prior_cases"):
         if reached.get(key, 0) < 1:
             problems.append(f"card {SAMPLE_CARD} reached no {key}")
     return {"card": SAMPLE_CARD, "reached": reached, "problems": problems}
