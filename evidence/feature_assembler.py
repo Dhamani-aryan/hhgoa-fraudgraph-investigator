@@ -636,6 +636,7 @@ def _reachable_within(seed: str, segments: list[dict], hops: int) -> set[str]:
 def _exposure(build: _Builder, window, exposure, flagged) -> None:
     source = "calculate_case_exposure_v1"
     names = (
+        "small_online_authorizations_1h_before",
         "candidate_episode_txn_ids",
         "candidate_episode_exposure_usd",
         "candidate_episode_local_sum_usd",
@@ -655,6 +656,7 @@ def _exposure(build: _Builder, window, exposure, flagged) -> None:
         build.seen(f"window transaction {item.get('txn_id')}", item.get("ts"))
     for item in exposure.get("transactions") or []:
         build.seen(f"exposure transaction {item.get('txn_id')}", item.get("ts"))
+    _sequence(build, rows, flagged)
     episode = episode_rows(rows, flagged)
     local = round(sum(abs(float(item["amount"])) for item in episode), 2)
     graph_total = round(float(exposure.get("exposure_usd") or 0.0), 2)
@@ -676,6 +678,33 @@ def _exposure(build: _Builder, window, exposure, flagged) -> None:
         "candidate_episode_excluded_after_cutoff",
         sorted(exposure.get("excluded_after_cutoff") or []),
         source,
+    )
+
+
+#: The card-testing sequence the plan and policy R5 describe: three or more
+#: small online authorizations within an hour before a larger purchase.
+SMALL_AUTHORIZATION_USD = 5.0
+
+
+def _sequence(build: _Builder, rows: list[dict], flagged: dict) -> None:
+    source = "get_transaction_window_v1"
+    small = []
+    for item in rows:
+        moment = parse_ts(item.get("ts"))
+        if (
+            moment is not None
+            and item.get("txn_id") != flagged.get("txn_id")
+            and item.get("channel") == "online"
+            and abs(float(item.get("amount") or 0.0)) < SMALL_AUTHORIZATION_USD
+            and 0 <= (build.anchor - moment).total_seconds() <= 3600
+        ):
+            small.append(item["txn_id"])
+    build.add(
+        "small_online_authorizations_1h_before",
+        sorted(small),
+        source,
+        reason=f"online authorizations under ${SMALL_AUTHORIZATION_USD:.0f} in the hour "
+        "before the flagged transaction",
     )
 
 

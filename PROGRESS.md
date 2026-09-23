@@ -226,7 +226,7 @@ by the cutoff.
 
 `evidence/collector.py` runs a case's nine structural queries through any
 GraphToolPort in a fixed order; `evidence/feature_assembler.py` composes them
-into one vector of 66 named features, each with a state (`available`,
+into one vector of 68 named features, each with a state (`available`,
 `withheld`, `refused`, `not_applicable`, `unavailable`), its source query and a
 reason. Withheld, refused and missing values are `None`, never 0 or False.
 Robust amount statistics (`scoring/robust_baselines.py`): median, MAD,
@@ -247,6 +247,36 @@ Live through MCP: HHG-019 costs nine structural calls, passes the leakage
 check with `data_max_time` equal to the anchor, and a review at 2016-12-31
 returns identical features. HHG-017's episode is 3450436, 3450503, 3450629 for
 $300.14, agreeing with the local sum. 29 unit and 11 live tests.
+
+### Gate 2G hybrid prior-case and policy retrieval
+
+- `retrieval/case_retriever.py`: stage 1 in GSQL (causal, self-excluding,
+  ClosedCase-only pools split by outcome, an exposure band of a factor of four
+  around the candidate episode, and a shared-origin pool of cases on the card,
+  its WCC component and its shared-device fraud cards), TigerGraph
+  `vectorSearch` over each pool, then a deterministic Python rerank. The
+  composite retrieval score is a named weighted sum (vector cosine similarity
+  0.30, pattern compatibility 0.25, shared origin 0.20, episode-size
+  similarity 0.15, recency 0.10) and is never presented as a cosine; TigerGraph's
+  own cosine distance and pool rank are carried beside it. At most two
+  confirmed-fraud, two cleared and two boundary cases, each with a reason
+  vector. A defensive filter rejects and names any non-`CC-`, self or
+  post-anchor row. A vector failure falls back to local lexical cosine only
+  when local memory is supplied, marked `local_fallback_not_tigergraph`.
+- `retrieval/policy_retriever.py`: TigerGraph vector search over PolicyChunk
+  (k=10), then deterministic selection of at most four chunks that an observed
+  signal makes relevant, one per signal first. Relevant anchors the search did
+  not return are reported, never injected.
+- Live, HHG-019: six cases through MCP (CC-5111, CC-3466 fraud; CC-4973,
+  CC-3107 cleared; CC-2172, CC-0510 boundary), shared-origin pool of 88 cases,
+  identical at a later review; policy R6, `pattern:card_not_present_new_device`,
+  R1 and `pattern:shared-origin-caution`. A card-testing signal set retrieves
+  R5 and `pattern:card_testing` live. HHG-017 retrieves no shared-origin rule.
+  A full HHG-019 investigation costs 11 of the 12 calls. 21 unit and 12 live
+  tests.
+- A card-testing sequence is a feature of its own:
+  `small_online_authorizations_1h_before` (online, under $5, in the hour before
+  the flagged transaction), not the lifetime burst count.
 
 ### Gate 2 leakage findings, fixed
 
