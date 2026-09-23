@@ -1,0 +1,2546 @@
+{
+  "anchor_time": "2016-12-01 17:28:53",
+  "case_id": "HHG-019",
+  "data_max_time": "2016-12-01 17:28:53",
+  "features": {
+    "amount_deviation_state": {
+      "name": "amount_deviation_state",
+      "reason": "",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "",
+      "value": "defined"
+    },
+    "amount_empirical_percentile": {
+      "name": "amount_empirical_percentile",
+      "reason": "",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "",
+      "value": 0.4018
+    },
+    "amount_equals_constant_history": {
+      "name": "amount_equals_constant_history",
+      "reason": "the history is not constant",
+      "source_query": "get_card_baseline_v1",
+      "state": "not_applicable",
+      "unit": "",
+      "value": null
+    },
+    "amount_history_count": {
+      "name": "amount_history_count",
+      "reason": "card transactions before the flagged one, to the anchor",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 219
+    },
+    "amount_mad_usd": {
+      "name": "amount_mad_usd",
+      "reason": "",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "USD",
+      "value": 66.86
+    },
+    "amount_median_usd": {
+      "name": "amount_median_usd",
+      "reason": "",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "USD",
+      "value": 116.92
+    },
+    "amount_robust_deviation": {
+      "name": "amount_robust_deviation",
+      "reason": "0.6745 * (amount - median) / MAD",
+      "source_query": "get_card_baseline_v1",
+      "state": "available",
+      "unit": "",
+      "value": -0.172
+    },
+    "burst_transitions": {
+      "name": "burst_transitions",
+      "reason": "consecutive gaps under 600s",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transitions",
+      "value": 11
+    },
+    "candidate_episode_excluded_after_cutoff": {
+      "name": "candidate_episode_excluded_after_cutoff",
+      "reason": "",
+      "source_query": "calculate_case_exposure_v1",
+      "state": "available",
+      "unit": "",
+      "value": []
+    },
+    "candidate_episode_exposure_agrees": {
+      "name": "candidate_episode_exposure_agrees",
+      "reason": "",
+      "source_query": "calculate_case_exposure_v1",
+      "state": "available",
+      "unit": "",
+      "value": true
+    },
+    "candidate_episode_exposure_usd": {
+      "name": "candidate_episode_exposure_usd",
+      "reason": "calculate_case_exposure_v1 over the candidate episode",
+      "source_query": "calculate_case_exposure_v1",
+      "state": "available",
+      "unit": "USD",
+      "value": 99.92
+    },
+    "candidate_episode_local_sum_usd": {
+      "name": "candidate_episode_local_sum_usd",
+      "reason": "",
+      "source_query": "get_transaction_window_v1",
+      "state": "available",
+      "unit": "USD",
+      "value": 99.92
+    },
+    "candidate_episode_txn_ids": {
+      "name": "candidate_episode_txn_ids",
+      "reason": "",
+      "source_query": "calculate_case_exposure_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        "3503878"
+      ]
+    },
+    "card_prior_transactions_on_device": {
+      "name": "card_prior_transactions_on_device",
+      "reason": "this card's transactions on the device before the flagged one",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 0
+    },
+    "card_velocity_1h": {
+      "name": "card_velocity_1h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 1
+    },
+    "card_velocity_24h": {
+      "name": "card_velocity_24h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 1
+    },
+    "card_velocity_7d": {
+      "name": "card_velocity_7d",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 4
+    },
+    "card_velocity_to_anchor": {
+      "name": "card_velocity_to_anchor",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "transactions",
+      "value": 220
+    },
+    "concurrent_home_region_activity": {
+      "name": "concurrent_home_region_activity",
+      "reason": "",
+      "source_query": "find_region_anomalies_v1",
+      "state": "available",
+      "unit": "",
+      "value": true
+    },
+    "days_since_latest_cleared_neighbour_closure": {
+      "name": "days_since_latest_cleared_neighbour_closure",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "days",
+      "value": 148.97
+    },
+    "days_since_latest_fraud_neighbour_closure": {
+      "name": "days_since_latest_fraud_neighbour_closure",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "days",
+      "value": 34.77
+    },
+    "device_cleared_neighbour_cards": {
+      "name": "device_cleared_neighbour_cards",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1
+    },
+    "device_degree_1h": {
+      "name": "device_degree_1h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1
+    },
+    "device_degree_24h": {
+      "name": "device_degree_24h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1
+    },
+    "device_degree_7d": {
+      "name": "device_degree_7d",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2
+    },
+    "device_degree_to_anchor": {
+      "name": "device_degree_to_anchor",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2
+    },
+    "device_distinct_cards_in_window": {
+      "name": "device_distinct_cards_in_window",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2
+    },
+    "device_distinct_customers_in_window": {
+      "name": "device_distinct_customers_in_window",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2
+    },
+    "device_fraud_neighbour_cards": {
+      "name": "device_fraud_neighbour_cards",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1
+    },
+    "device_identity_marked_new": {
+      "name": "device_identity_marked_new",
+      "reason": "identity record id_15 for the flagged transaction",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "",
+      "value": true
+    },
+    "device_is_novel_for_card": {
+      "name": "device_is_novel_for_card",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": true
+    },
+    "device_proxy_category": {
+      "name": "device_proxy_category",
+      "reason": "",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "",
+      "value": ""
+    },
+    "email_degree_1h": {
+      "name": "email_degree_1h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1
+    },
+    "email_degree_24h": {
+      "name": "email_degree_24h",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 11
+    },
+    "email_degree_7d": {
+      "name": "email_degree_7d",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 92
+    },
+    "email_degree_to_anchor": {
+      "name": "email_degree_to_anchor",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2379
+    },
+    "email_distinct_cards_in_window": {
+      "name": "email_distinct_cards_in_window",
+      "reason": "",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "available",
+      "unit": "",
+      "value": 59
+    },
+    "flagged_amount_usd": {
+      "name": "flagged_amount_usd",
+      "reason": "",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "USD",
+      "value": 99.92
+    },
+    "flagged_channel": {
+      "name": "flagged_channel",
+      "reason": "",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "",
+      "value": "online"
+    },
+    "flagged_region_prior_count": {
+      "name": "flagged_region_prior_count",
+      "reason": "",
+      "source_query": "find_region_anomalies_v1",
+      "state": "available",
+      "unit": "",
+      "value": 5
+    },
+    "other_region_activity_in_window": {
+      "name": "other_region_activity_in_window",
+      "reason": "card activity in a different region within the home window",
+      "source_query": "find_region_anomalies_v1",
+      "state": "available",
+      "unit": "",
+      "value": 2
+    },
+    "prior_cases_on_card": {
+      "name": "prior_cases_on_card",
+      "reason": "",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        {
+          "case_id": "CC-2011",
+          "closed_at": "2016-08-17 22:59:36",
+          "outcome": "confirmed_fraud",
+          "pattern": "out_of_region_use"
+        },
+        {
+          "case_id": "CC-2087",
+          "closed_at": "2016-08-16 18:38:57",
+          "outcome": "cleared",
+          "pattern": "none"
+        },
+        {
+          "case_id": "CC-2860",
+          "closed_at": "2016-09-02 14:34:41",
+          "outcome": "confirmed_fraud",
+          "pattern": "card_not_present_fraud"
+        },
+        {
+          "case_id": "CC-5026",
+          "closed_at": "2016-10-20 18:21:43",
+          "outcome": "confirmed_fraud",
+          "pattern": "out_of_region_use"
+        }
+      ]
+    },
+    "region_degree_1h": {
+      "name": "region_degree_1h",
+      "reason": "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "region_degree_24h": {
+      "name": "region_degree_24h",
+      "reason": "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "region_degree_7d": {
+      "name": "region_degree_7d",
+      "reason": "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "region_degree_to_anchor": {
+      "name": "region_degree_to_anchor",
+      "reason": "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "region_distinct_cards_in_window": {
+      "name": "region_distinct_cards_in_window",
+      "reason": "billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+      "source_query": "extract_temporal_graph_features_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "region_is_new_for_card": {
+      "name": "region_is_new_for_card",
+      "reason": "",
+      "source_query": "find_region_anomalies_v1",
+      "state": "available",
+      "unit": "",
+      "value": false
+    },
+    "shared_device_cards_to_anchor": {
+      "name": "shared_device_cards_to_anchor",
+      "reason": "distinct cards on the entity to the cutoff",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "cards",
+      "value": 2
+    },
+    "shared_device_distinct_cards_in_window": {
+      "name": "shared_device_distinct_cards_in_window",
+      "reason": "",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "cards",
+      "value": 1
+    },
+    "shared_device_fraud_enriched_cards": {
+      "name": "shared_device_fraud_enriched_cards",
+      "reason": "",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        "C11309-K1"
+      ]
+    },
+    "shared_device_fraud_enrichment_ratio": {
+      "name": "shared_device_fraud_enrichment_ratio",
+      "reason": "confirmed-fraud cards / other cards in the window",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "",
+      "value": 1.0
+    },
+    "shared_device_is_supernode": {
+      "name": "shared_device_is_supernode",
+      "reason": "more than 100 cards at the cutoff",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "",
+      "value": false
+    },
+    "shared_device_rarity": {
+      "name": "shared_device_rarity",
+      "reason": "1 / distinct cards to the cutoff; 1.0 is unshared",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "available",
+      "unit": "",
+      "value": 0.5
+    },
+    "shared_region_cards_to_anchor": {
+      "name": "shared_region_cards_to_anchor",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "shared_region_distinct_cards_in_window": {
+      "name": "shared_region_distinct_cards_in_window",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "shared_region_fraud_enriched_cards": {
+      "name": "shared_region_fraud_enriched_cards",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "shared_region_fraud_enrichment_ratio": {
+      "name": "shared_region_fraud_enrichment_ratio",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "shared_region_is_supernode": {
+      "name": "shared_region_is_supernode",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "shared_region_rarity": {
+      "name": "shared_region_rarity",
+      "reason": "entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+      "source_query": "find_shared_origin_activity_v1",
+      "state": "withheld",
+      "unit": "",
+      "value": null
+    },
+    "small_online_authorizations_1h_before": {
+      "name": "small_online_authorizations_1h_before",
+      "reason": "online authorizations under $5 in the hour before the flagged transaction",
+      "source_query": "get_transaction_window_v1",
+      "state": "available",
+      "unit": "",
+      "value": []
+    },
+    "trigger_risk_score": {
+      "name": "trigger_risk_score",
+      "reason": "the bank model's score: a reason to look, never a verdict",
+      "source_query": "get_case_context_v1",
+      "state": "available",
+      "unit": "",
+      "value": 0.9
+    },
+    "two_hop_fraud_reachable_cards": {
+      "name": "two_hop_fraud_reachable_cards",
+      "reason": "",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        "C02354-K2",
+        "C05560-K2",
+        "C05704-K2",
+        "C06224-K2",
+        "C11309-K1"
+      ]
+    },
+    "two_hop_reachable_cards": {
+      "name": "two_hop_reachable_cards",
+      "reason": "cards joined to the seed by <= 2 returned path segments",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        "C02354-K2",
+        "C05560-K2",
+        "C05704-K2",
+        "C06224-K2",
+        "C11309-K1"
+      ]
+    },
+    "wcc_component_size": {
+      "name": "wcc_component_size",
+      "reason": "",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "cards",
+      "value": 6
+    },
+    "wcc_fraud_enriched_members": {
+      "name": "wcc_fraud_enriched_members",
+      "reason": "component cards other than the seed with confirmed fraud closed by the cutoff",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        "C02354-K2",
+        "C05560-K2",
+        "C05704-K2",
+        "C06224-K2",
+        "C11309-K1"
+      ]
+    },
+    "wcc_isolated": {
+      "name": "wcc_isolated",
+      "reason": "",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": false
+    },
+    "wcc_path_segments": {
+      "name": "wcc_path_segments",
+      "reason": "",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": [
+        {
+          "device_id": "617deda1f7ea4b99",
+          "from_card": "C07987-K2",
+          "hop": 1,
+          "to_card": "C11309-K1"
+        },
+        {
+          "device_id": "b04edb9207de7b73",
+          "from_card": "C11309-K1",
+          "hop": 2,
+          "to_card": "C02354-K2"
+        },
+        {
+          "device_id": "b04edb9207de7b73",
+          "from_card": "C11309-K1",
+          "hop": 2,
+          "to_card": "C05560-K2"
+        },
+        {
+          "device_id": "b04edb9207de7b73",
+          "from_card": "C11309-K1",
+          "hop": 2,
+          "to_card": "C05704-K2"
+        },
+        {
+          "device_id": "6c1eacf915155220",
+          "from_card": "C11309-K1",
+          "hop": 2,
+          "to_card": "C06224-K2"
+        }
+      ]
+    },
+    "wcc_path_segments_truncated": {
+      "name": "wcc_path_segments_truncated",
+      "reason": "",
+      "source_query": "wcc_shared_origin_v1",
+      "state": "available",
+      "unit": "",
+      "value": false
+    }
+  },
+  "leakage_check_passed": true,
+  "ledger_final_hash": "2f3965d21bdfe648d6fe1289216cd890feafafce3034ec7aeeac52c19cfffc85",
+  "metadata": {
+    "adapters_used": {
+      "mcp": 11
+    },
+    "anchor_time": "2016-12-01 17:28:53",
+    "calls": [
+      {
+        "adapter": "mcp",
+        "duration_ms": 1733.3,
+        "error_class": "",
+        "ok": true,
+        "query_name": "get_case_context_v1",
+        "result_bytes": 13927,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "68a6075ac816499f"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 290.0,
+        "error_class": "",
+        "ok": true,
+        "query_name": "get_card_baseline_v1",
+        "result_bytes": 13935,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "0b37afd185b54fbe"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 284.9,
+        "error_class": "",
+        "ok": true,
+        "query_name": "get_transaction_window_v1",
+        "result_bytes": 827,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "1ca1cc886dc944b8"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 347.8,
+        "error_class": "",
+        "ok": true,
+        "query_name": "extract_temporal_graph_features_v1",
+        "result_bytes": 1848,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "53d20958c7274f08"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 289.3,
+        "error_class": "",
+        "ok": true,
+        "query_name": "find_shared_origin_activity_v1",
+        "result_bytes": 6265,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "acdccff3d74540a5"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 285.3,
+        "error_class": "",
+        "ok": true,
+        "query_name": "find_shared_origin_activity_v1",
+        "result_bytes": 559,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "4dc53546325146f1"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 346.5,
+        "error_class": "",
+        "ok": true,
+        "query_name": "find_region_anomalies_v1",
+        "result_bytes": 1348,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "e3dbdb9c15f6413e"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 300.2,
+        "error_class": "",
+        "ok": true,
+        "query_name": "wcc_shared_origin_v1",
+        "result_bytes": 23110,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "5b766c2174604112"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 358.3,
+        "error_class": "",
+        "ok": true,
+        "query_name": "calculate_case_exposure_v1",
+        "result_bytes": 354,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "7f822396175444dc"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 301.9,
+        "error_class": "",
+        "ok": true,
+        "query_name": "find_similar_closed_cases_v1",
+        "result_bytes": 17404,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "2eb081195e194c87"
+      },
+      {
+        "adapter": "mcp",
+        "duration_ms": 288.8,
+        "error_class": "",
+        "ok": true,
+        "query_name": "find_policy_chunks_v1",
+        "result_bytes": 7713,
+        "tool": "tigergraph__run_installed_query",
+        "trace_id": "2c54433db29f4a49"
+      }
+    ],
+    "caps": {
+      "entity_ids_per_item": 25,
+      "graph_calls": 12,
+      "items": 60,
+      "path_segments": 25,
+      "policy_chunks": 4,
+      "prior_cases": 6
+    },
+    "created_at": "2026-09-23T13:58:49Z",
+    "data_max_time": "2016-12-01 17:28:53",
+    "fallback_events": [],
+    "fallback_occurred": false,
+    "graph_call_budget": 12,
+    "graph_call_count": 11,
+    "mcp_trace_ids": [
+      "68a6075ac816499f",
+      "0b37afd185b54fbe",
+      "1ca1cc886dc944b8",
+      "53d20958c7274f08",
+      "acdccff3d74540a5",
+      "4dc53546325146f1",
+      "e3dbdb9c15f6413e",
+      "5b766c2174604112",
+      "7f822396175444dc",
+      "2eb081195e194c87",
+      "2c54433db29f4a49"
+    ],
+    "port_mode": "mcp_primary_with_direct_fallback",
+    "primary_adapter": "mcp",
+    "query_bundle_version": "v1",
+    "query_versions": {
+      "calculate_case_exposure_v1": "v1",
+      "extract_temporal_graph_features_v1": "v1",
+      "find_policy_chunks_v1": "v1",
+      "find_region_anomalies_v1": "v1",
+      "find_shared_origin_activity_v1": "v1",
+      "find_similar_closed_cases_v1": "v1",
+      "get_card_baseline_v1": "v1",
+      "get_case_context_v1": "v1",
+      "get_transaction_window_v1": "v1",
+      "wcc_shared_origin_v1": "v1"
+    },
+    "review_time": "2016-12-01 22:28:53",
+    "truncated": {
+      "transaction_window": false,
+      "wcc_path_segments": false,
+      "wcc_segments_in_query": false
+    },
+    "withheld_or_unavailable": {
+      "not_applicable": [
+        "amount_equals_constant_history"
+      ],
+      "withheld": [
+        "region_degree_1h",
+        "region_degree_24h",
+        "region_degree_7d",
+        "region_degree_to_anchor",
+        "region_distinct_cards_in_window",
+        "shared_region_cards_to_anchor",
+        "shared_region_distinct_cards_in_window",
+        "shared_region_fraud_enriched_cards",
+        "shared_region_fraud_enrichment_ratio",
+        "shared_region_is_supernode",
+        "shared_region_rarity"
+      ]
+    }
+  },
+  "observed_entity_ids": [
+    "059ecd03b28d2ce1",
+    "0eb2a9a57a791158",
+    "14fd052c4f55a0ff",
+    "166857e106fe78cd",
+    "1866497e7ebac3f1",
+    "19a0c4cbcbee0872",
+    "23d041ab07945aa7",
+    "264.0",
+    "2c30cbf24965cfec",
+    "31765608bac0cbbe",
+    "3386076",
+    "3387871",
+    "3392517",
+    "3396218",
+    "3396222",
+    "3396276",
+    "3399582",
+    "3400309",
+    "3400612",
+    "3402585",
+    "3404298",
+    "3409800",
+    "3410072",
+    "3413871",
+    "3419333",
+    "3419383",
+    "3421729",
+    "3428952",
+    "3429062",
+    "3429104",
+    "3429135",
+    "3436006",
+    "3438093",
+    "3445074",
+    "3446685",
+    "3446832",
+    "3446970",
+    "3448076",
+    "3453539",
+    "3454839",
+    "3456149",
+    "3457587",
+    "3457703",
+    "3458424",
+    "3466072",
+    "3467489",
+    "3481019",
+    "3487671",
+    "3495125",
+    "3497738",
+    "3499109",
+    "3503878",
+    "36bf6026726fad67",
+    "3d40ad6804052b77",
+    "40a6204f97ee0e16",
+    "485580710c31a87c",
+    "4c01eda17c29a227",
+    "4fd3e60720369208",
+    "573d49655a07a9ae",
+    "5bfcc80ef31a6202",
+    "616bd1cb9da44979",
+    "617deda1f7ea4b99",
+    "6c1eacf915155220",
+    "78eeac019a2dd742",
+    "7b5b45825d8c0885",
+    "7fbcfbb4f55f11aa",
+    "84b548dc7d94772e",
+    "8ea57628c8afc1b3",
+    "966d9dd92eecb676",
+    "9695564381ca9d36",
+    "9b0d5099aa45197a",
+    "C02354",
+    "C02354-K2",
+    "C03218-K2",
+    "C05560",
+    "C05560-K2",
+    "C05704",
+    "C05704-K2",
+    "C06224",
+    "C06224-K2",
+    "C07987",
+    "C07987-K2",
+    "C11309",
+    "C11309-K1",
+    "C12966-K1",
+    "CC-0033",
+    "CC-0048",
+    "CC-0145",
+    "CC-0209",
+    "CC-0255",
+    "CC-0289",
+    "CC-0291",
+    "CC-0423",
+    "CC-0454",
+    "CC-0475",
+    "CC-0498",
+    "CC-0510",
+    "CC-0631",
+    "CC-0711",
+    "CC-0732",
+    "CC-1005",
+    "CC-1210",
+    "CC-1263",
+    "CC-1450",
+    "CC-1491",
+    "CC-1587",
+    "CC-1699",
+    "CC-1875",
+    "CC-2011",
+    "CC-2051",
+    "CC-2087",
+    "CC-2172",
+    "CC-2187",
+    "CC-2292",
+    "CC-2406",
+    "CC-2432",
+    "CC-2439",
+    "CC-2572",
+    "CC-2589",
+    "CC-2800",
+    "CC-2860",
+    "CC-2887",
+    "CC-3014",
+    "CC-3047",
+    "CC-3085",
+    "CC-3107",
+    "CC-3188",
+    "CC-3213",
+    "CC-3258",
+    "CC-3319",
+    "CC-3436",
+    "CC-3466",
+    "CC-3501",
+    "CC-3511",
+    "CC-3537",
+    "CC-3634",
+    "CC-3688",
+    "CC-3765",
+    "CC-3856",
+    "CC-3895",
+    "CC-3899",
+    "CC-3940",
+    "CC-4040",
+    "CC-4070",
+    "CC-4132",
+    "CC-4284",
+    "CC-4309",
+    "CC-4431",
+    "CC-4436",
+    "CC-4521",
+    "CC-4633",
+    "CC-4638",
+    "CC-4660",
+    "CC-4721",
+    "CC-4904",
+    "CC-4912",
+    "CC-4942",
+    "CC-4973",
+    "CC-5020",
+    "CC-5026",
+    "CC-5105",
+    "CC-5111",
+    "CC-5150",
+    "CC-5221",
+    "CC-5248",
+    "CC-5305",
+    "CC-5337",
+    "CC-5430",
+    "CC-5441",
+    "CC-5558",
+    "a179fbf8b4b1bab0",
+    "a8cf2533a5613ed8",
+    "a91cdad5a6938701",
+    "ad65c0c34a807fd3",
+    "b04edb9207de7b73",
+    "b2f43ad260a6ce84",
+    "b376862d5f4c7a66",
+    "bea42b4e4032f0dc",
+    "c448bfa936e75bfd",
+    "c6c9ff345a9c2d76",
+    "cab2c265fabd1fe2",
+    "d6644f9c564e2204",
+    "d6bb29001339f594",
+    "dbaceb147bd83424",
+    "e2b40121becff492",
+    "e4030ffeddb81e59",
+    "e66fe314ca3dca37",
+    "e8f02ca9695ce2ed",
+    "f2d0eda9674258f4",
+    "fb4d09c906bd663f",
+    "gmail.com",
+    "pattern:card_not_present_fraud",
+    "pattern:card_not_present_new_device",
+    "pattern:card_testing",
+    "pattern:device-signature",
+    "pattern:shared-origin-caution",
+    "policy:R1",
+    "policy:R2",
+    "policy:R5",
+    "policy:R6",
+    "policy:actions",
+    "verizon.net"
+  ],
+  "package_id": "PKG-6f3336a456f191f4",
+  "policy_retrieval": {
+    "case_id": "HHG-019",
+    "chunks": [
+      {
+        "anchor": "R6",
+        "chunk_id": "policy:R6",
+        "excerpt": "**Shared origin.** When several cards show fraud from the same device profile, the same billing region, or the same recipient email in one window, name the shared element, recommend `CREATE_CASE` and `FILE_REPORT`, and `MONITOR_CONNECTED_CARDS` for every card that shares it.",
+        "query_bundle_version": "v1",
+        "selection_reason": "observed signal shared_origin makes policy:R6 relevant; TigerGraph vector rank 1 of 10",
+        "signal": "shared_origin",
+        "source_document": "fraud_policy.md",
+        "source_query": "find_policy_chunks_v1",
+        "tigergraph_vector_rank": 1,
+        "title": "Shared origin",
+        "vector_cosine_distance": 0.518861,
+        "vector_cosine_similarity": 0.481139
+      },
+      {
+        "anchor": "card_not_present_new_device",
+        "chunk_id": "pattern:card_not_present_new_device",
+        "excerpt": "As above, with the identity record marking the device as `New` for this account (`id_15`), sometimes behind a proxy (`id_23`). Stronger than plain card-not-present fraud, still not proof: people buy new phones.",
+        "query_bundle_version": "v1",
+        "selection_reason": "observed signal new_device_online makes pattern:card_not_present_new_device relevant; TigerGraph vector rank 6 of 10",
+        "signal": "new_device_online",
+        "source_document": "fraud_patterns.md",
+        "source_query": "find_policy_chunks_v1",
+        "tigergraph_vector_rank": 6,
+        "title": "As above, with the identity record marking the device as `New` for this account",
+        "vector_cosine_distance": 0.762851,
+        "vector_cosine_similarity": 0.237149
+      },
+      {
+        "anchor": "R1",
+        "chunk_id": "policy:R1",
+        "excerpt": "**Verify before you block on a weak signal.** If the case rests on a single signal (including a risk score alone) and the assessed fraud probability is below 0.70, recommend `VERIFY_WITH_CUSTOMER` or `STEP_UP_AUTH` before any block. Blocking a legitimate customer on one signal is a policy breach.",
+        "query_bundle_version": "v1",
+        "selection_reason": "observed signal risk_score_trigger makes policy:R1 relevant; TigerGraph vector rank 2 of 10",
+        "signal": "risk_score_trigger",
+        "source_document": "fraud_policy.md",
+        "source_query": "find_policy_chunks_v1",
+        "tigergraph_vector_rank": 2,
+        "title": "Verify before you block on a weak signal",
+        "vector_cosine_distance": 0.626351,
+        "vector_cosine_similarity": 0.373649
+      },
+      {
+        "anchor": "shared-origin-caution",
+        "chunk_id": "pattern:shared-origin-caution",
+        "excerpt": "The audit of the supplied data (`runs/data_audit.json`) shows why a shared entity is not by itself evidence of a ring: | Shared entity | Distinct values | Max cards on one value | |---|---:|---:| | Purchaser email domain | 59 | 9,332 (`gmail.com`) | | Recipient email domain | 60 | 5,158 (`gmail.com`) | | Billing region `addr1` | 332 | 2,075 | | Device signature (strength \u2265 3) | 5,386 | 842 | Email domains and billing regions are supernodes. A device signature is far more discriminating: its median is 1\u20132 cards and 2,641 strong signatures touch exactly one card. A shared-origin claim therefore ",
+        "query_bundle_version": "v1",
+        "selection_reason": "observed signal shared_origin makes pattern:shared-origin-caution relevant; TigerGraph vector rank 7 of 10",
+        "signal": "shared_origin",
+        "source_document": "fraud_patterns.md",
+        "source_query": "find_policy_chunks_v1",
+        "tigergraph_vector_rank": 7,
+        "title": "The audit of the supplied data (`runs/data_audit.json`) shows why a shared",
+        "vector_cosine_distance": 0.777876,
+        "vector_cosine_similarity": 0.222124
+      }
+    ],
+    "query_text": "several cards show fraud from the same device profile shared origin. online card not present purchase from a device new for the account. risk score is a reason to look verify before blocking on a weak signal",
+    "query_vector": {
+      "sha256": "53ff27d86ff29832976e29c50c76a5edb823ba52878cdae664c1cfa5018c68db",
+      "vector_dims": 1536
+    },
+    "relevant_anchors": [
+      "policy:R6",
+      "pattern:shared-origin-caution",
+      "policy:R9",
+      "pattern:undocumented",
+      "pattern:card_not_present_new_device",
+      "policy:R1",
+      "pattern:risk-score"
+    ],
+    "relevant_not_retrieved": [
+      "policy:R9",
+      "pattern:undocumented",
+      "pattern:risk-score"
+    ],
+    "retrieved_ranked": [
+      "policy:R6",
+      "policy:R1",
+      "pattern:card_testing",
+      "policy:R2",
+      "pattern:card_not_present_fraud",
+      "pattern:card_not_present_new_device",
+      "pattern:shared-origin-caution",
+      "policy:R5",
+      "pattern:device-signature",
+      "policy:actions"
+    ],
+    "source_query": "find_policy_chunks_v1",
+    "trace_id": "2c54433db29f4a49"
+  },
+  "prior_case_retrieval": {
+    "admissibility_cutoff": "2016-12-01 17:28:53",
+    "anchor_time": "2016-12-01 17:28:53",
+    "band": {
+      "max_exposure": 399.68,
+      "min_exposure": 24.98
+    },
+    "band_relaxed": {
+      "cleared": true,
+      "confirmed_fraud": false
+    },
+    "candidates_considered": 18,
+    "case_id": "HHG-019",
+    "cases": [
+      {
+        "card_id": "C05704-K2",
+        "case_id": "CC-5111",
+        "closed_at": "2016-10-22 23:01:26",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 1.0,
+          "recency": 0.642828,
+          "shared_origin": 1.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.297551
+        },
+        "composite_retrieval_score": 0.753548,
+        "exposure_usd": 49.92,
+        "group": "confirmed_fraud_analogue",
+        "n_txns": 1,
+        "outcome": "confirmed_fraud",
+        "pattern": "card_not_present_new_device",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "shared_origin",
+          "compatible_pattern:card_not_present_new_device",
+          "same_new_device",
+          "similar_episode_size",
+          "tigergraph_vector_rank:1"
+        ],
+        "recency_contribution": 0.064283,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.702449,
+        "vector_cosine_similarity": 0.297551,
+        "vector_pool": "shared_origin_pool",
+        "vector_pool_rank": 1
+      },
+      {
+        "card_id": "C05560-K2",
+        "case_id": "CC-3466",
+        "closed_at": "2016-09-18 14:33:00",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 1.0,
+          "recency": 0.438858,
+          "shared_origin": 1.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.28319
+        },
+        "composite_retrieval_score": 0.728843,
+        "exposure_usd": 200.05,
+        "group": "confirmed_fraud_analogue",
+        "n_txns": 1,
+        "outcome": "confirmed_fraud",
+        "pattern": "card_not_present_new_device",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "shared_origin",
+          "compatible_pattern:card_not_present_new_device",
+          "same_new_device",
+          "similar_episode_size",
+          "tigergraph_vector_rank:6"
+        ],
+        "recency_contribution": 0.043886,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.7168103,
+        "vector_cosine_similarity": 0.28319,
+        "vector_pool": "shared_origin_pool",
+        "vector_pool_rank": 6
+      },
+      {
+        "card_id": "C03218-K2",
+        "case_id": "CC-4973",
+        "closed_at": "2016-10-21 03:49:54",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 0.5,
+          "recency": 0.630101,
+          "shared_origin": 0.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.234474
+        },
+        "composite_retrieval_score": 0.408352,
+        "exposure_usd": 0.0,
+        "group": "cleared_analogue",
+        "n_txns": 1,
+        "outcome": "cleared",
+        "pattern": "none",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "similar_episode_size",
+          "opposite_outcome",
+          "tigergraph_vector_rank:2"
+        ],
+        "recency_contribution": 0.06301,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.7655256,
+        "vector_cosine_similarity": 0.234474,
+        "vector_pool": "vector_cleared_pool",
+        "vector_pool_rank": 2
+      },
+      {
+        "card_id": "C12966-K1",
+        "case_id": "CC-3107",
+        "closed_at": "2016-09-08 01:14:40",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 0.5,
+          "recency": 0.390296,
+          "shared_origin": 0.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.302769
+        },
+        "composite_retrieval_score": 0.40486,
+        "exposure_usd": 0.0,
+        "group": "cleared_analogue",
+        "n_txns": 1,
+        "outcome": "cleared",
+        "pattern": "none",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "similar_episode_size",
+          "opposite_outcome",
+          "tigergraph_vector_rank:1"
+        ],
+        "recency_contribution": 0.03903,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.6972308,
+        "vector_cosine_similarity": 0.302769,
+        "vector_pool": "vector_cleared_pool",
+        "vector_pool_rank": 1
+      },
+      {
+        "card_id": "C05560-K2",
+        "case_id": "CC-2172",
+        "closed_at": "2016-08-20 15:48:38",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 1.0,
+          "recency": 0.318155,
+          "shared_origin": 1.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.28319
+        },
+        "composite_retrieval_score": 0.716773,
+        "exposure_usd": 449.92,
+        "group": "boundary",
+        "n_txns": 1,
+        "outcome": "confirmed_fraud",
+        "pattern": "card_not_present_new_device",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "structurally_close_boundary",
+          "shared_origin",
+          "compatible_pattern:card_not_present_new_device",
+          "same_new_device",
+          "similar_episode_size",
+          "tigergraph_vector_rank:5"
+        ],
+        "recency_contribution": 0.031816,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.7168103,
+        "vector_cosine_similarity": 0.28319,
+        "vector_pool": "shared_origin_pool",
+        "vector_pool_rank": 5
+      },
+      {
+        "card_id": "C05704-K2",
+        "case_id": "CC-0510",
+        "closed_at": "2016-07-20 02:26:01",
+        "closed_before_anchor": true,
+        "component_scores": {
+          "pattern_compatibility": 1.0,
+          "recency": 0.224057,
+          "shared_origin": 1.0,
+          "size_similarity": 1.0,
+          "vector_cosine_similarity": 0.28319
+        },
+        "composite_retrieval_score": 0.707363,
+        "exposure_usd": 200.02,
+        "group": "boundary",
+        "n_txns": 1,
+        "outcome": "confirmed_fraud",
+        "pattern": "card_not_present_new_device",
+        "query_bundle_version": "v1",
+        "reasons": [
+          "structurally_close_boundary",
+          "shared_origin",
+          "compatible_pattern:card_not_present_new_device",
+          "same_new_device",
+          "similar_episode_size",
+          "tigergraph_vector_rank:3"
+        ],
+        "recency_contribution": 0.022406,
+        "source_query": "find_similar_closed_cases_v1",
+        "vector_cosine_distance": 0.7168103,
+        "vector_cosine_similarity": 0.28319,
+        "vector_pool": "shared_origin_pool",
+        "vector_pool_rank": 3
+      }
+    ],
+    "fallback_reason": "",
+    "pool_sizes": {
+      "admissible": 5565,
+      "cleared": 900,
+      "confirmed_fraud": 3193,
+      "shared_origin": 88
+    },
+    "query_text": "online card not present purchase. device new for this account. shared device used by another card with confirmed fraud. several cards connected through shared devices. 1 transactions",
+    "query_vector": {
+      "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+      "vector_dims": 1536
+    },
+    "rejected_inadmissible": {},
+    "retrieval_path": "tigergraph_vector",
+    "source_query": "find_similar_closed_cases_v1",
+    "trace_id": "2eb081195e194c87",
+    "weights": {
+      "pattern_compatibility": 0.25,
+      "recency": 0.1,
+      "shared_origin": 0.2,
+      "size_similarity": 0.15,
+      "vector_cosine_similarity": 0.3
+    }
+  },
+  "sections": {
+    "case_memory": [
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved confirmed_fraud case CC-5111 (card_not_present_new_device, closed 2016-10-22) as a confirmed fraud analogue: composite retrieval score 0.754, TigerGraph cosine similarity 0.298 (rank 1 in shared_origin_pool); reasons: shared_origin, compatible_pattern:card_not_present_new_device, same_new_device, similar_episode_size, tigergraph_vector_rank:1",
+        "content_hash": "f284c6570c42ade34ef996667395b86f832051376546d89ac55578fa342fc92a",
+        "data_max_time": "2016-10-22 23:01:26",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-5111",
+          "C05704-K2"
+        ],
+        "evidence_id": "EV-HHG-019-015",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "5c563dacd257d754e474bb3d9f027d0408a9a811cd96d07c5b38e6fd65527b75",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 1.0,
+            "recency": 0.642828,
+            "shared_origin": 1.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.297551
+          },
+          "composite_retrieval_score": 0.753548,
+          "group": "confirmed_fraud_analogue",
+          "reasons": [
+            "shared_origin",
+            "compatible_pattern:card_not_present_new_device",
+            "same_new_device",
+            "similar_episode_size",
+            "tigergraph_vector_rank:1"
+          ],
+          "recency_contribution": 0.064283,
+          "vector_cosine_distance": 0.702449,
+          "vector_cosine_similarity": 0.297551,
+          "vector_pool": "shared_origin_pool",
+          "vector_pool_rank": 1
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "supporting",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 49.92,
+          "n_txns": 1,
+          "outcome": "confirmed_fraud",
+          "pattern": "card_not_present_new_device"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved confirmed_fraud case CC-3466 (card_not_present_new_device, closed 2016-09-18) as a confirmed fraud analogue: composite retrieval score 0.729, TigerGraph cosine similarity 0.283 (rank 6 in shared_origin_pool); reasons: shared_origin, compatible_pattern:card_not_present_new_device, same_new_device, similar_episode_size, tigergraph_vector_rank:6",
+        "content_hash": "90b961999508954fe538c7518d92f124f9bd2d7f5ec9d25f009d318619743e0e",
+        "data_max_time": "2016-09-18 14:33:00",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-3466",
+          "C05560-K2"
+        ],
+        "evidence_id": "EV-HHG-019-016",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "f284c6570c42ade34ef996667395b86f832051376546d89ac55578fa342fc92a",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 1.0,
+            "recency": 0.438858,
+            "shared_origin": 1.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.28319
+          },
+          "composite_retrieval_score": 0.728843,
+          "group": "confirmed_fraud_analogue",
+          "reasons": [
+            "shared_origin",
+            "compatible_pattern:card_not_present_new_device",
+            "same_new_device",
+            "similar_episode_size",
+            "tigergraph_vector_rank:6"
+          ],
+          "recency_contribution": 0.043886,
+          "vector_cosine_distance": 0.7168103,
+          "vector_cosine_similarity": 0.28319,
+          "vector_pool": "shared_origin_pool",
+          "vector_pool_rank": 6
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "supporting",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 200.05,
+          "n_txns": 1,
+          "outcome": "confirmed_fraud",
+          "pattern": "card_not_present_new_device"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved cleared case CC-4973 (none, closed 2016-10-21) as a cleared analogue: composite retrieval score 0.408, TigerGraph cosine similarity 0.234 (rank 2 in vector_cleared_pool); reasons: similar_episode_size, opposite_outcome, tigergraph_vector_rank:2",
+        "content_hash": "9345d91054388a5d66307a48cc7473edaef808568ad3e9249e8b36d68f47b4d7",
+        "data_max_time": "2016-10-21 03:49:54",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-4973",
+          "C03218-K2"
+        ],
+        "evidence_id": "EV-HHG-019-017",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "90b961999508954fe538c7518d92f124f9bd2d7f5ec9d25f009d318619743e0e",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 0.5,
+            "recency": 0.630101,
+            "shared_origin": 0.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.234474
+          },
+          "composite_retrieval_score": 0.408352,
+          "group": "cleared_analogue",
+          "reasons": [
+            "similar_episode_size",
+            "opposite_outcome",
+            "tigergraph_vector_rank:2"
+          ],
+          "recency_contribution": 0.06301,
+          "vector_cosine_distance": 0.7655256,
+          "vector_cosine_similarity": 0.234474,
+          "vector_pool": "vector_cleared_pool",
+          "vector_pool_rank": 2
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "contradicting",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 0.0,
+          "n_txns": 1,
+          "outcome": "cleared",
+          "pattern": "none"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved cleared case CC-3107 (none, closed 2016-09-08) as a cleared analogue: composite retrieval score 0.405, TigerGraph cosine similarity 0.303 (rank 1 in vector_cleared_pool); reasons: similar_episode_size, opposite_outcome, tigergraph_vector_rank:1",
+        "content_hash": "83f24fad51b33741cc7c276348cf286cb36bd34e04a613ba2384159dafd3cf3c",
+        "data_max_time": "2016-09-08 01:14:40",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-3107",
+          "C12966-K1"
+        ],
+        "evidence_id": "EV-HHG-019-018",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "9345d91054388a5d66307a48cc7473edaef808568ad3e9249e8b36d68f47b4d7",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 0.5,
+            "recency": 0.390296,
+            "shared_origin": 0.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.302769
+          },
+          "composite_retrieval_score": 0.40486,
+          "group": "cleared_analogue",
+          "reasons": [
+            "similar_episode_size",
+            "opposite_outcome",
+            "tigergraph_vector_rank:1"
+          ],
+          "recency_contribution": 0.03903,
+          "vector_cosine_distance": 0.6972308,
+          "vector_cosine_similarity": 0.302769,
+          "vector_pool": "vector_cleared_pool",
+          "vector_pool_rank": 1
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "contradicting",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 0.0,
+          "n_txns": 1,
+          "outcome": "cleared",
+          "pattern": "none"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved confirmed_fraud case CC-2172 (card_not_present_new_device, closed 2016-08-20) as a boundary: composite retrieval score 0.717, TigerGraph cosine similarity 0.283 (rank 5 in shared_origin_pool); reasons: structurally_close_boundary, shared_origin, compatible_pattern:card_not_present_new_device, same_new_device, similar_episode_size, tigergraph_vector_rank:5",
+        "content_hash": "74885da74963a521daac22eed7d7d0c7c57ed5aff56ad11a8cd81d4da6defaf2",
+        "data_max_time": "2016-08-20 15:48:38",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-2172",
+          "C05560-K2"
+        ],
+        "evidence_id": "EV-HHG-019-019",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "83f24fad51b33741cc7c276348cf286cb36bd34e04a613ba2384159dafd3cf3c",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 1.0,
+            "recency": 0.318155,
+            "shared_origin": 1.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.28319
+          },
+          "composite_retrieval_score": 0.716773,
+          "group": "boundary",
+          "reasons": [
+            "structurally_close_boundary",
+            "shared_origin",
+            "compatible_pattern:card_not_present_new_device",
+            "same_new_device",
+            "similar_episode_size",
+            "tigergraph_vector_rank:5"
+          ],
+          "recency_contribution": 0.031816,
+          "vector_cosine_distance": 0.7168103,
+          "vector_cosine_similarity": 0.28319,
+          "vector_pool": "shared_origin_pool",
+          "vector_pool_rank": 5
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "neutral",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 449.92,
+          "n_txns": 1,
+          "outcome": "confirmed_fraud",
+          "pattern": "card_not_present_new_device"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Retrieved confirmed_fraud case CC-0510 (card_not_present_new_device, closed 2016-07-20) as a boundary: composite retrieval score 0.707, TigerGraph cosine similarity 0.283 (rank 3 in shared_origin_pool); reasons: structurally_close_boundary, shared_origin, compatible_pattern:card_not_present_new_device, same_new_device, similar_episode_size, tigergraph_vector_rank:3",
+        "content_hash": "31991aed0b0d19909e30920a27ece91e3a78c0fae74d3cfe840894b6181e2d6a",
+        "data_max_time": "2016-07-20 02:26:01",
+        "document_ref": null,
+        "entity_ids": [
+          "CC-0510",
+          "C05704-K2"
+        ],
+        "evidence_id": "EV-HHG-019-020",
+        "feature_names": [],
+        "independence_group": "case_memory",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "query_vector": {
+            "sha256": "8e990f9d2a32f2ec77ec845b42a0f035c858956b39d00102e48b27a6e1c7a3ab",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "74885da74963a521daac22eed7d7d0c7c57ed5aff56ad11a8cd81d4da6defaf2",
+        "query_bundle_version": "v1",
+        "query_name": "find_similar_closed_cases_v1",
+        "ref": "query:find_similar_closed_cases_v1",
+        "retrieval": {
+          "closed_before_anchor": true,
+          "component_scores": {
+            "pattern_compatibility": 1.0,
+            "recency": 0.224057,
+            "shared_origin": 1.0,
+            "size_similarity": 1.0,
+            "vector_cosine_similarity": 0.28319
+          },
+          "composite_retrieval_score": 0.707363,
+          "group": "boundary",
+          "reasons": [
+            "structurally_close_boundary",
+            "shared_origin",
+            "compatible_pattern:card_not_present_new_device",
+            "same_new_device",
+            "similar_episode_size",
+            "tigergraph_vector_rank:3"
+          ],
+          "recency_contribution": 0.022406,
+          "vector_cosine_distance": 0.7168103,
+          "vector_cosine_similarity": 0.28319,
+          "vector_pool": "shared_origin_pool",
+          "vector_pool_rank": 3
+        },
+        "section": "case_memory",
+        "source_type": "graph_vector",
+        "strength": "neutral",
+        "trace_id": "2eb081195e194c87",
+        "value": {
+          "exposure_usd": 200.02,
+          "n_txns": 1,
+          "outcome": "confirmed_fraud",
+          "pattern": "card_not_present_new_device"
+        }
+      }
+    ],
+    "graph_evidence": [
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Device 617deda1f7ea4b99 had not been used by card C07987-K2 before 3503878; the identity record marks it New",
+        "content_hash": "8bebbde12f16481aa480f19d3e3861752eefc5871e1dba6099dcf100dc79053c",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "3503878",
+          "617deda1f7ea4b99",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-006",
+        "feature_names": [
+          "device_is_novel_for_card",
+          "device_identity_marked_new"
+        ],
+        "independence_group": "device_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "0ceef002c9a15ddcdc3e928e186f29d7ddb9e9229119a34ceb370dfcdf0cbad1",
+        "query_bundle_version": "v1",
+        "query_name": "extract_temporal_graph_features_v1",
+        "ref": "query:extract_temporal_graph_features_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "supporting",
+        "trace_id": "53d20958c7274f08",
+        "value": {
+          "card_prior_transactions_on_device": 0,
+          "device_degree_to_anchor": 2,
+          "device_is_novel_for_card": true,
+          "identity_marked_new": true
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "1 other card(s) using device 617deda1f7ea4b99 in the window carry confirmed fraud closed by the anchor, the latest 34.77 days before it",
+        "content_hash": "942661a8aa025b1cff324c7bec68fb29a791854f0aca9d344be1f90a5b8502e8",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "617deda1f7ea4b99",
+          "C11309-K1"
+        ],
+        "evidence_id": "EV-HHG-019-007",
+        "feature_names": [
+          "device_fraud_neighbour_cards",
+          "days_since_latest_fraud_neighbour_closure"
+        ],
+        "independence_group": "device_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "8bebbde12f16481aa480f19d3e3861752eefc5871e1dba6099dcf100dc79053c",
+        "query_bundle_version": "v1",
+        "query_name": "extract_temporal_graph_features_v1",
+        "ref": "query:extract_temporal_graph_features_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "supporting",
+        "trace_id": "53d20958c7274f08",
+        "value": {
+          "card_ids": [
+            "C11309-K1"
+          ],
+          "fraud_neighbour_cards": 1
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "1 other card(s) using device 617deda1f7ea4b99 in the window were investigated and cleared, the latest 148.97 days before the anchor",
+        "content_hash": "f7d9f02b1d73ee570d707f1e00460350756882a3bbd0ac67728860b6fd2a44e1",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "617deda1f7ea4b99"
+        ],
+        "evidence_id": "EV-HHG-019-008",
+        "feature_names": [
+          "device_cleared_neighbour_cards",
+          "days_since_latest_cleared_neighbour_closure"
+        ],
+        "independence_group": "device_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "942661a8aa025b1cff324c7bec68fb29a791854f0aca9d344be1f90a5b8502e8",
+        "query_bundle_version": "v1",
+        "query_name": "extract_temporal_graph_features_v1",
+        "ref": "query:extract_temporal_graph_features_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "contradicting",
+        "trace_id": "53d20958c7274f08",
+        "value": {
+          "cleared_neighbour_cards": 1
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Device 617deda1f7ea4b99 is rare (2 cards by the anchor) and was used by 1 other card(s) in the window, 1 with confirmed fraud closed by the anchor (C11309-K1; enrichment 100%)",
+        "content_hash": "14e0dc979e7dc0eaead10d59b7bf8d02a4d8529aa2249d87f9ddd3d19af2a8f9",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "617deda1f7ea4b99",
+          "C11309-K1"
+        ],
+        "evidence_id": "EV-HHG-019-009",
+        "feature_names": [
+          "shared_device_rarity",
+          "shared_device_distinct_cards_in_window",
+          "shared_device_fraud_enrichment_ratio"
+        ],
+        "independence_group": "device_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "anchor_ts": "2016-12-01 17:28:53",
+          "as_of_ts": "2016-12-01 22:28:53",
+          "entity_id": "617deda1f7ea4b99",
+          "entity_kind": "device",
+          "exclude_card_id": "C07987-K2"
+        },
+        "path_segments": null,
+        "previous_hash": "f7d9f02b1d73ee570d707f1e00460350756882a3bbd0ac67728860b6fd2a44e1",
+        "query_bundle_version": "v1",
+        "query_name": "find_shared_origin_activity_v1",
+        "ref": "query:find_shared_origin_activity_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "supporting",
+        "trace_id": "acdccff3d74540a5",
+        "value": {
+          "cards_to_anchor": 2,
+          "fraud_cards": [
+            "C11309-K1"
+          ],
+          "fraud_enrichment_ratio": 1.0,
+          "other_cards_in_window": 1,
+          "rarity": 0.5
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Time-local WCC over shared devices joins card C07987-K2 to 5 other card(s) within 2 hop(s); 5 carry confirmed fraud closed by the anchor, 5 of them within two hops, along 5 exact predecessor-device-member segment(s)",
+        "content_hash": "ae8eaac5726a2ae1c65b7714bd1657d9c12430185db57828ff20d3629fbbebc9",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "617deda1f7ea4b99",
+          "6c1eacf915155220",
+          "C02354-K2",
+          "C05560-K2",
+          "C05704-K2",
+          "C06224-K2",
+          "C07987-K2",
+          "C11309-K1",
+          "b04edb9207de7b73"
+        ],
+        "evidence_id": "EV-HHG-019-010",
+        "feature_names": [
+          "wcc_component_size",
+          "wcc_fraud_enriched_members",
+          "two_hop_fraud_reachable_cards",
+          "wcc_path_segments"
+        ],
+        "independence_group": "device_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "anchor_ts": "2016-12-01 17:28:53",
+          "as_of_ts": "2016-12-01 22:28:53",
+          "max_hops": 2,
+          "seed_card_id": "C07987-K2"
+        },
+        "path_segments": [
+          {
+            "device_id": "617deda1f7ea4b99",
+            "from_card": "C07987-K2",
+            "hop": 1,
+            "to_card": "C11309-K1"
+          },
+          {
+            "device_id": "b04edb9207de7b73",
+            "from_card": "C11309-K1",
+            "hop": 2,
+            "to_card": "C02354-K2"
+          },
+          {
+            "device_id": "b04edb9207de7b73",
+            "from_card": "C11309-K1",
+            "hop": 2,
+            "to_card": "C05560-K2"
+          },
+          {
+            "device_id": "b04edb9207de7b73",
+            "from_card": "C11309-K1",
+            "hop": 2,
+            "to_card": "C05704-K2"
+          },
+          {
+            "device_id": "6c1eacf915155220",
+            "from_card": "C11309-K1",
+            "hop": 2,
+            "to_card": "C06224-K2"
+          }
+        ],
+        "previous_hash": "14e0dc979e7dc0eaead10d59b7bf8d02a4d8529aa2249d87f9ddd3d19af2a8f9",
+        "query_bundle_version": "v1",
+        "query_name": "wcc_shared_origin_v1",
+        "ref": "query:wcc_shared_origin_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "supporting",
+        "trace_id": "5b766c2174604112",
+        "value": {
+          "component_size": 6,
+          "fraud_enriched_members": [
+            "C02354-K2",
+            "C05560-K2",
+            "C05704-K2",
+            "C06224-K2",
+            "C11309-K1"
+          ],
+          "segments_truncated_in_query": false,
+          "two_hop_fraud_reachable_cards": [
+            "C02354-K2",
+            "C05560-K2",
+            "C05704-K2",
+            "C06224-K2",
+            "C11309-K1"
+          ],
+          "two_hop_reachable_cards": [
+            "C02354-K2",
+            "C05560-K2",
+            "C05704-K2",
+            "C06224-K2",
+            "C11309-K1"
+          ]
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Billing region 264.0 is familiar to card C07987-K2: 5 prior transactions there",
+        "content_hash": "e5b21d7befedabb8c60f959c64d6541954b5a2dfb293d25411a641ec495cab9b",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "264.0",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-011",
+        "feature_names": [
+          "region_is_new_for_card",
+          "flagged_region_prior_count"
+        ],
+        "independence_group": "region_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "card_id": "C07987-K2",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "ae8eaac5726a2ae1c65b7714bd1657d9c12430185db57828ff20d3629fbbebc9",
+        "query_bundle_version": "v1",
+        "query_name": "find_region_anomalies_v1",
+        "ref": "query:find_region_anomalies_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "contradicting",
+        "trace_id": "e3dbdb9c15f6413e",
+        "value": {
+          "prior_count": 5,
+          "region_is_new_for_card": false
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Card C07987-K2 was active in 2 transaction(s) in another region within 72 hours of the flagged one; for an online purchase this does not indicate a cloned card",
+        "content_hash": "2d6cd75b2b297931e4e7a7cb0ff6895dea0e052dea3c14eae2ea564aa546c195",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "264.0",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-012",
+        "feature_names": [
+          "other_region_activity_in_window",
+          "concurrent_home_region_activity"
+        ],
+        "independence_group": "region_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "card_id": "C07987-K2",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "e5b21d7befedabb8c60f959c64d6541954b5a2dfb293d25411a641ec495cab9b",
+        "query_bundle_version": "v1",
+        "query_name": "find_region_anomalies_v1",
+        "ref": "query:find_region_anomalies_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "e3dbdb9c15f6413e",
+        "value": {
+          "other_region_activity_in_window": 2
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "withheld",
+        "claim": "Region 264.0 co-occurrence is unknown, not absent: billing region lifetime volume exceeds max_scan_rows; region features withheld, not partial",
+        "content_hash": "112f7c100d923a94a3351f7a2d92212166da904ec7c541fd832f7e153947bb3a",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "264.0"
+        ],
+        "evidence_id": "EV-HHG-019-013",
+        "feature_names": [
+          "region_degree_to_anchor"
+        ],
+        "independence_group": "region_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "2d6cd75b2b297931e4e7a7cb0ff6895dea0e052dea3c14eae2ea564aa546c195",
+        "query_bundle_version": "v1",
+        "query_name": "extract_temporal_graph_features_v1",
+        "ref": "query:extract_temporal_graph_features_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "53d20958c7274f08",
+        "value": null
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "withheld",
+        "claim": "Region 264.0 co-occurrence is unknown, not absent: entity volume exceeds the scan budget, so its rarity cannot be established affordably",
+        "content_hash": "5c563dacd257d754e474bb3d9f027d0408a9a811cd96d07c5b38e6fd65527b75",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "264.0"
+        ],
+        "evidence_id": "EV-HHG-019-014",
+        "feature_names": [
+          "shared_region_fraud_enrichment_ratio"
+        ],
+        "independence_group": "region_network",
+        "leakage_check_passed": true,
+        "parameters": {
+          "anchor_ts": "2016-12-01 17:28:53",
+          "as_of_ts": "2016-12-01 22:28:53",
+          "entity_id": "264.0",
+          "entity_kind": "region",
+          "exclude_card_id": "C07987-K2"
+        },
+        "path_segments": null,
+        "previous_hash": "112f7c100d923a94a3351f7a2d92212166da904ec7c541fd832f7e153947bb3a",
+        "query_bundle_version": "v1",
+        "query_name": "find_shared_origin_activity_v1",
+        "ref": "query:find_shared_origin_activity_v1",
+        "retrieval": null,
+        "section": "graph_evidence",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "4dc53546325146f1",
+        "value": null
+      }
+    ],
+    "policy_context": [
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "policy:R6 (Shared origin) is relevant to the observed signal shared_origin: **Shared origin.** When several cards show fraud from the same device profile, the same billing region, or the same recipient email in one window, name the shared element, recommend `CREATE_CASE` and `FILE_REPORT`, and `MONITOR_CONNECTED_CA",
+        "content_hash": "41a53125649bb7a870338494bc00542eee0f0bcebdcaecfce36a2d3b2c99f8ca",
+        "data_max_time": null,
+        "document_ref": "fraud_policy.md#R6",
+        "entity_ids": [
+          "policy:R6"
+        ],
+        "evidence_id": "EV-HHG-019-021",
+        "feature_names": [],
+        "independence_group": "policy",
+        "leakage_check_passed": true,
+        "parameters": {
+          "query_vector": {
+            "sha256": "53ff27d86ff29832976e29c50c76a5edb823ba52878cdae664c1cfa5018c68db",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "31991aed0b0d19909e30920a27ece91e3a78c0fae74d3cfe840894b6181e2d6a",
+        "query_bundle_version": "v1",
+        "query_name": "find_policy_chunks_v1",
+        "ref": "policy:R6",
+        "retrieval": {
+          "selection_reason": "observed signal shared_origin makes policy:R6 relevant; TigerGraph vector rank 1 of 10",
+          "tigergraph_vector_rank": 1,
+          "vector_cosine_distance": 0.518861,
+          "vector_cosine_similarity": 0.481139
+        },
+        "section": "policy_context",
+        "source_type": "policy_document",
+        "strength": "neutral",
+        "trace_id": "2c54433db29f4a49",
+        "value": {
+          "signal": "shared_origin",
+          "title": "Shared origin"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "pattern:card_not_present_new_device (As above, with the identity record marking the device as `New` for this account) is relevant to the observed signal new_device_online: As above, with the identity record marking the device as `New` for this account (`id_15`), sometimes behind a proxy (`id_23`). Stronger than plain card-not-present fraud, still not proof: people buy new phones.",
+        "content_hash": "e35a88288e7b31734414579e3b74ed42c2ba93bb8d679bb91cc89074b005a014",
+        "data_max_time": null,
+        "document_ref": "fraud_patterns.md#card_not_present_new_device",
+        "entity_ids": [
+          "pattern:card_not_present_new_device"
+        ],
+        "evidence_id": "EV-HHG-019-022",
+        "feature_names": [],
+        "independence_group": "policy",
+        "leakage_check_passed": true,
+        "parameters": {
+          "query_vector": {
+            "sha256": "53ff27d86ff29832976e29c50c76a5edb823ba52878cdae664c1cfa5018c68db",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "41a53125649bb7a870338494bc00542eee0f0bcebdcaecfce36a2d3b2c99f8ca",
+        "query_bundle_version": "v1",
+        "query_name": "find_policy_chunks_v1",
+        "ref": "pattern:card_not_present_new_device",
+        "retrieval": {
+          "selection_reason": "observed signal new_device_online makes pattern:card_not_present_new_device relevant; TigerGraph vector rank 6 of 10",
+          "tigergraph_vector_rank": 6,
+          "vector_cosine_distance": 0.762851,
+          "vector_cosine_similarity": 0.237149
+        },
+        "section": "policy_context",
+        "source_type": "policy_document",
+        "strength": "neutral",
+        "trace_id": "2c54433db29f4a49",
+        "value": {
+          "signal": "new_device_online",
+          "title": "As above, with the identity record marking the device as `New` for this account"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "policy:R1 (Verify before you block on a weak signal) is relevant to the observed signal risk_score_trigger: **Verify before you block on a weak signal.** If the case rests on a single signal (including a risk score alone) and the assessed fraud probability is below 0.70, recommend `VERIFY_WITH_CUSTOMER` or `STEP_UP_AUTH` before any block. Blockin",
+        "content_hash": "cb1483ce4f1a92a1882392c05a94f778481f6a56a705c7343ff4246d1d321e15",
+        "data_max_time": null,
+        "document_ref": "fraud_policy.md#R1",
+        "entity_ids": [
+          "policy:R1"
+        ],
+        "evidence_id": "EV-HHG-019-023",
+        "feature_names": [],
+        "independence_group": "policy",
+        "leakage_check_passed": true,
+        "parameters": {
+          "query_vector": {
+            "sha256": "53ff27d86ff29832976e29c50c76a5edb823ba52878cdae664c1cfa5018c68db",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "e35a88288e7b31734414579e3b74ed42c2ba93bb8d679bb91cc89074b005a014",
+        "query_bundle_version": "v1",
+        "query_name": "find_policy_chunks_v1",
+        "ref": "policy:R1",
+        "retrieval": {
+          "selection_reason": "observed signal risk_score_trigger makes policy:R1 relevant; TigerGraph vector rank 2 of 10",
+          "tigergraph_vector_rank": 2,
+          "vector_cosine_distance": 0.626351,
+          "vector_cosine_similarity": 0.373649
+        },
+        "section": "policy_context",
+        "source_type": "policy_document",
+        "strength": "neutral",
+        "trace_id": "2c54433db29f4a49",
+        "value": {
+          "signal": "risk_score_trigger",
+          "title": "Verify before you block on a weak signal"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "pattern:shared-origin-caution (The audit of the supplied data (`runs/data_audit.json`) shows why a shared) is relevant to the observed signal shared_origin: The audit of the supplied data (`runs/data_audit.json`) shows why a shared entity is not by itself evidence of a ring: | Shared entity | Distinct values | Max cards on one value | |---|---:|---:| | Purchaser email domain | 59 | 9,332 (`gmai",
+        "content_hash": "2f3965d21bdfe648d6fe1289216cd890feafafce3034ec7aeeac52c19cfffc85",
+        "data_max_time": null,
+        "document_ref": "fraud_patterns.md#shared-origin-caution",
+        "entity_ids": [
+          "pattern:shared-origin-caution"
+        ],
+        "evidence_id": "EV-HHG-019-024",
+        "feature_names": [],
+        "independence_group": "policy",
+        "leakage_check_passed": true,
+        "parameters": {
+          "query_vector": {
+            "sha256": "53ff27d86ff29832976e29c50c76a5edb823ba52878cdae664c1cfa5018c68db",
+            "vector_dims": 1536
+          }
+        },
+        "path_segments": null,
+        "previous_hash": "cb1483ce4f1a92a1882392c05a94f778481f6a56a705c7343ff4246d1d321e15",
+        "query_bundle_version": "v1",
+        "query_name": "find_policy_chunks_v1",
+        "ref": "pattern:shared-origin-caution",
+        "retrieval": {
+          "selection_reason": "observed signal shared_origin makes pattern:shared-origin-caution relevant; TigerGraph vector rank 7 of 10",
+          "tigergraph_vector_rank": 7,
+          "vector_cosine_distance": 0.777876,
+          "vector_cosine_similarity": 0.222124
+        },
+        "section": "policy_context",
+        "source_type": "policy_document",
+        "strength": "neutral",
+        "trace_id": "2c54433db29f4a49",
+        "value": {
+          "signal": "shared_origin",
+          "title": "The audit of the supplied data (`runs/data_audit.json`) shows why a shared"
+        }
+      }
+    ],
+    "trigger_and_baseline": [
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "HHG-019 was raised by a risk_score trigger on transaction 3503878 ($99.92, online) on card C07987-K2 at 2016-12-01 17:28:53; the bank model scored it 0.90, a reason to look and never a verdict",
+        "content_hash": "4245f5c6b6511c443af809318ede2d0df92491a321b94aad464023bd388c35d2",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "3503878",
+          "C07987",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-001",
+        "feature_names": [
+          "trigger_risk_score",
+          "flagged_amount_usd",
+          "flagged_channel"
+        ],
+        "independence_group": "trigger_model",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "query_bundle_version": "v1",
+        "query_name": "get_case_context_v1",
+        "ref": "query:get_case_context_v1",
+        "retrieval": null,
+        "section": "trigger_and_baseline",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "68a6075ac816499f",
+        "value": {
+          "amount_usd": 99.92,
+          "channel": "online",
+          "region": "264.0",
+          "risk_score": 0.9,
+          "trigger_type": "risk_score",
+          "ts": "2016-12-01 17:28:53"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "The $99.92 amount sits at the 40% percentile of card C07987-K2's 219 prior amounts (median $116.92, MAD $66.86, robust deviation -0.17)",
+        "content_hash": "faa4fbc85e5b278e1f397f9dbc1027b94eeb7564643e27385571a4f5208ae79a",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "3503878",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-002",
+        "feature_names": [
+          "amount_empirical_percentile",
+          "amount_robust_deviation",
+          "amount_median_usd",
+          "amount_mad_usd"
+        ],
+        "independence_group": "customer_history",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "card_id": "C07987-K2"
+        },
+        "path_segments": null,
+        "previous_hash": "4245f5c6b6511c443af809318ede2d0df92491a321b94aad464023bd388c35d2",
+        "query_bundle_version": "v1",
+        "query_name": "get_card_baseline_v1",
+        "ref": "query:get_card_baseline_v1",
+        "retrieval": null,
+        "section": "trigger_and_baseline",
+        "source_type": "graph",
+        "strength": "contradicting",
+        "trace_id": "0b37afd185b54fbe",
+        "value": {
+          "amount_deviation_state": "defined",
+          "amount_empirical_percentile": 0.4018,
+          "amount_equals_constant_history": null,
+          "amount_history_count": 219,
+          "amount_mad_usd": 66.86,
+          "amount_median_usd": 116.92,
+          "amount_robust_deviation": -0.172
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "No burst: 3503878 is the only same-channel transaction on card C07987-K2 in the 48 hours before it, with no card-testing sequence (card velocity 1h/24h/7d = 1/1/4)",
+        "content_hash": "da1e91ecfc9408df4c6d7c955e2e6059fb7106db77eeb4b888282336f6effc7c",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "3503878",
+          "C07987-K2"
+        ],
+        "evidence_id": "EV-HHG-019-003",
+        "feature_names": [
+          "candidate_episode_txn_ids",
+          "small_online_authorizations_1h_before",
+          "card_velocity_1h",
+          "card_velocity_24h",
+          "card_velocity_7d"
+        ],
+        "independence_group": "temporal_sequence",
+        "leakage_check_passed": true,
+        "parameters": {
+          "anchor_ts": "2016-12-01 17:28:53",
+          "as_of_ts": "2016-12-01 22:28:53",
+          "card_id": "C07987-K2",
+          "hours_before": 48
+        },
+        "path_segments": null,
+        "previous_hash": "faa4fbc85e5b278e1f397f9dbc1027b94eeb7564643e27385571a4f5208ae79a",
+        "query_bundle_version": "v1",
+        "query_name": "get_transaction_window_v1",
+        "ref": "query:get_transaction_window_v1",
+        "retrieval": null,
+        "section": "trigger_and_baseline",
+        "source_type": "graph",
+        "strength": "contradicting",
+        "trace_id": "1ca1cc886dc944b8",
+        "value": {
+          "candidate_episode_txn_ids": [
+            "3503878"
+          ],
+          "card_velocity": {
+            "1h": 1,
+            "24h": 1,
+            "7d": 4
+          },
+          "small_online_authorizations_1h_before": []
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "The candidate episode (3503878) totals $99.92 by calculate_case_exposure_v1, agreeing with the local sum of the window rows",
+        "content_hash": "176a9c4cd7c491f46ad3e70ca43bc8c6a29c15478f3e299fe8ead02b21f0486a",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "3503878"
+        ],
+        "evidence_id": "EV-HHG-019-004",
+        "feature_names": [
+          "candidate_episode_exposure_usd",
+          "candidate_episode_exposure_agrees"
+        ],
+        "independence_group": "temporal_sequence",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 17:28:53",
+          "txn_ids": [
+            "3503878"
+          ]
+        },
+        "path_segments": null,
+        "previous_hash": "da1e91ecfc9408df4c6d7c955e2e6059fb7106db77eeb4b888282336f6effc7c",
+        "query_bundle_version": "v1",
+        "query_name": "calculate_case_exposure_v1",
+        "ref": "query:calculate_case_exposure_v1",
+        "retrieval": null,
+        "section": "trigger_and_baseline",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "7f822396175444dc",
+        "value": {
+          "agrees": true,
+          "exposure_usd": 99.92,
+          "local_sum_usd": 99.92,
+          "rule": "flagged transaction plus same-card, same-channel transactions in the 48h before it"
+        }
+      },
+      {
+        "anchor_time": "2016-12-01 17:28:53",
+        "availability": "observed",
+        "claim": "Card C07987-K2 carries 4 closed case(s) closed by the anchor: CC-2011 (confirmed_fraud, out_of_region_use), CC-2087 (cleared, none), CC-2860 (confirmed_fraud, card_not_present_fraud), CC-5026 (confirmed_fraud, out_of_region_use)",
+        "content_hash": "0ceef002c9a15ddcdc3e928e186f29d7ddb9e9229119a34ceb370dfcdf0cbad1",
+        "data_max_time": "2016-12-01 17:28:53",
+        "document_ref": null,
+        "entity_ids": [
+          "C07987-K2",
+          "CC-2011",
+          "CC-2087",
+          "CC-2860",
+          "CC-5026"
+        ],
+        "evidence_id": "EV-HHG-019-005",
+        "feature_names": [
+          "prior_cases_on_card"
+        ],
+        "independence_group": "customer_history",
+        "leakage_check_passed": true,
+        "parameters": {
+          "as_of_ts": "2016-12-01 22:28:53",
+          "flagged_txn_id": "3503878"
+        },
+        "path_segments": null,
+        "previous_hash": "176a9c4cd7c491f46ad3e70ca43bc8c6a29c15478f3e299fe8ead02b21f0486a",
+        "query_bundle_version": "v1",
+        "query_name": "get_case_context_v1",
+        "ref": "query:get_case_context_v1",
+        "retrieval": null,
+        "section": "trigger_and_baseline",
+        "source_type": "graph",
+        "strength": "neutral",
+        "trace_id": "68a6075ac816499f",
+        "value": [
+          {
+            "case_id": "CC-2011",
+            "closed_at": "2016-08-17 22:59:36",
+            "outcome": "confirmed_fraud",
+            "pattern": "out_of_region_use"
+          },
+          {
+            "case_id": "CC-2087",
+            "closed_at": "2016-08-16 18:38:57",
+            "outcome": "cleared",
+            "pattern": "none"
+          },
+          {
+            "case_id": "CC-2860",
+            "closed_at": "2016-09-02 14:34:41",
+            "outcome": "confirmed_fraud",
+            "pattern": "card_not_present_fraud"
+          },
+          {
+            "case_id": "CC-5026",
+            "closed_at": "2016-10-20 18:21:43",
+            "outcome": "confirmed_fraud",
+            "pattern": "out_of_region_use"
+          }
+        ]
+      }
+    ]
+  },
+  "trigger": {
+    "card_id": "C07987-K2",
+    "case_id": "HHG-019",
+    "customer_id": "C07987",
+    "flagged_txn_id": "3503878",
+    "opened_at": "2016-12-01 22:28:53",
+    "risk_score": 0.9,
+    "trigger_text": "Real-time model scored transaction 3503878 ($99.92, online) at 0.90. Review and decide.",
+    "trigger_type": "risk_score"
+  }
+}
