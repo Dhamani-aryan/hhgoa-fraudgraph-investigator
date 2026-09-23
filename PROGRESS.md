@@ -210,6 +210,25 @@ gate. It is reported as `precheck_lifetime_transactions`, decides solely
 whether a scan is affordable, and is never case evidence; the rarity driving
 the supernode decision is a separate count bounded by the effective cutoff.
 
+### Gate 2A follow-up corrections
+
+Two adjacent issues in queries the first pass did not revisit:
+
+4. **`get_case_context_v1` bounded five traversals by `as_of_ts`.** A later
+   review widened the card history, cardholder history, device history,
+   adjacent transactions and prior closed cases. All five now use
+   `effective_cutoff = min(flagged transaction ts, as_of_ts)`, so evidence is a
+   property of the case rather than of when someone looked. Three review
+   cutoffs now return identical evidence.
+5. **`get_card_baseline_v1` had the same false `LIMIT` cap.** Asking for 5
+   amounts returned all 53. It is now gated by a pre-traversal precheck, and it
+   skips rather than truncating: a partial amount list would give a median and
+   MAD for a half-read card, which is worse than no baseline because nothing
+   downstream would know to distrust it. The bound is measured — the largest
+   card in this dataset holds 14,891 transactions against a 20,000 default, and
+   a test asserts that maximum from the prepared files so the documented
+   contract cannot drift from the data.
+
 ### Retrieval quality, measured
 
 The query "three small online authorizations within an hour followed by a
