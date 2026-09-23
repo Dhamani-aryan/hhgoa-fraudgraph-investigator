@@ -183,3 +183,115 @@ def test_the_benchmark_epoch_is_left_clean(connection):
     connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
     result = connection.runInstalledQuery(READ, params={"case_id": TEST_CASE_ID})
     assert scalar(result, "found") is False
+
+
+# --- retrieval attributes on INV_SIMILAR_TO --------------------------------
+
+
+def test_similarity_and_reasons_persist_and_read_back(connection):
+    """An edge with no similarity and no reasons cannot say WHY a case was cited."""
+    from graph.case_writer import read_case, write_case
+
+    receipt = write_case(
+        connection,
+        payload(similar_case_ids=["CC-0137", "CC-0003"]),
+        similarity={"CC-0137": 0.82, "CC-0003": 0.41},
+        reasons={"CC-0137": "same_new_device,similar_velocity", "CC-0003": "opposite_outcome"},
+    )
+    try:
+        assert receipt.ok is True
+        assert receipt.similarity_edges_attributed == 2
+
+        stored = {
+            item["case_id"]: item
+            for item in rows(read_case(connection, TEST_CASE_ID), "similar_prior_cases")
+        }
+        assert stored["CC-0137"]["similarity"] == pytest.approx(0.82)
+        assert stored["CC-0137"]["reasons"] == "same_new_device,similar_velocity"
+        assert stored["CC-0003"]["similarity"] == pytest.approx(0.41)
+        assert stored["CC-0003"]["reasons"] == "opposite_outcome"
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_attributes_are_only_applied_to_matched_cases(connection):
+    from graph.case_writer import write_case
+
+    receipt = write_case(
+        connection,
+        payload(similar_case_ids=["CC-0137", "CC-9999999"]),
+        similarity={"CC-0137": 0.5, "CC-9999999": 0.9},
+        reasons={"CC-0137": "r", "CC-9999999": "r"},
+    )
+    try:
+        assert receipt.similarity_edges_attributed == 1
+        assert "CC-9999999" in receipt.unmatched["unmatched_case_ids"]
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+# --- partial writes are failures -------------------------------------------
+
+
+def test_a_complete_write_reports_complete(connection):
+    from graph.case_writer import write_case
+
+    receipt = write_case(connection, payload())
+    try:
+        assert receipt.complete is True
+        assert receipt.ok is True
+        assert all(not ids for ids in receipt.unmatched.values())
+        assert receipt.unmatched_on_card_id == ""
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "override"),
+    [
+        ("unmatched_txn_ids", {"affected_txn_ids": ["3450436", "9999999999"]}),
+        ("unmatched_card_ids", {"connected_card_ids": ["C99999-K9"]}),
+        ("unmatched_case_ids", {"similar_case_ids": ["CC-9999999"]}),
+        ("unmatched_device_ids", {"device_profile_ids": ["nosuchdevice"]}),
+        ("unmatched_policy_chunk_ids", {"policy_chunk_ids": ["policy:NOPE"]}),
+    ],
+)
+def test_every_identifier_kind_is_reported_when_unmatched(connection, field_name, override):
+    """Device, policy and on-card ids were previously dropped in silence."""
+    from graph.case_writer import write_case
+
+    receipt = write_case(connection, payload(**override))
+    try:
+        assert receipt.unmatched[field_name], f"{field_name} was not reported"
+        assert receipt.complete is False
+        assert receipt.ok is False
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_an_unmatched_on_card_id_is_reported(connection):
+    from graph.case_writer import write_case
+
+    receipt = write_case(connection, payload(on_card_id="C99999-K9"))
+    try:
+        assert receipt.unmatched_on_card_id == "C99999-K9"
+        assert receipt.ok is False
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_a_partial_write_describes_what_was_missing(connection):
+    """The caller must be able to act on the receipt, not just see a boolean."""
+    from graph.case_writer import write_case
+
+    receipt = write_case(
+        connection,
+        payload(device_profile_ids=["nosuchdevice"], policy_chunk_ids=["policy:NOPE"]),
+    )
+    try:
+        description = receipt.describe()
+        assert "PARTIAL" in description
+        assert "nosuchdevice" in description
+        assert "policy:NOPE" in description
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)

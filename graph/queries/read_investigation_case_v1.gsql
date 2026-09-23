@@ -19,6 +19,11 @@ CREATE QUERY read_investigation_case_v1(
   SumAccum<INT> @@txn_edges, @@card_edges, @@device_edges;
   SumAccum<INT> @@similar_edges, @@policy_edges, @@on_card_edges;
 
+  // Edge attributes are read onto the target vertex, because PRINT cannot
+  // project an edge attribute directly.
+  MaxAccum<DOUBLE> @similarity;
+  MaxAccum<STRING> @reasons;
+
   SEED = {InvestigationCase.*};
   stored = SELECT i FROM SEED:i WHERE i.case_id == case_id;
 
@@ -51,9 +56,15 @@ CREATE QUERY read_investigation_case_v1(
     ACCUM @@device_edges += 1;
   PRINT devices[devices.device_id, devices.label] AS device_profiles;
 
-  similar = SELECT k FROM stored:i -(INV_SIMILAR_TO>)- ClosedCase:k
-    ACCUM @@similar_edges += 1;
-  PRINT similar[similar.case_id, similar.outcome, similar.pattern] AS similar_prior_cases;
+  similar = SELECT k FROM stored:i -(INV_SIMILAR_TO>:e)- ClosedCase:k
+    ACCUM
+      @@similar_edges += 1,
+      k.@similarity += e.similarity,
+      k.@reasons += e.reasons;
+  PRINT similar[
+    similar.case_id, similar.outcome, similar.pattern,
+    similar.@similarity AS similarity, similar.@reasons AS reasons
+  ] AS similar_prior_cases;
 
   cited = SELECT p FROM stored:i -(INV_CITES_POLICY>)- PolicyChunk:p
     ACCUM @@policy_edges += 1;

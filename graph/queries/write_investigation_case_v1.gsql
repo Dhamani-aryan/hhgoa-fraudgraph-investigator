@@ -72,6 +72,7 @@ CREATE QUERY write_investigation_case_v1(
   SumAccum<INT> @@txn_edges, @@card_edges, @@device_edges;
   SumAccum<INT> @@similar_edges, @@policy_edges, @@on_card_edges;
   SetAccum<STRING> @@matched_txn_ids, @@matched_card_ids, @@matched_case_ids;
+  SetAccum<STRING> @@matched_device_ids, @@matched_chunk_ids;
 
   // The vertex. INSERT on an existing primary id updates it, which is what
   // makes a rerun converge rather than duplicate.
@@ -128,10 +129,20 @@ CREATE QUERY write_investigation_case_v1(
   devices = SELECT d FROM DEVICES:d WHERE device_profile_ids.contains(d.device_id)
     ACCUM
       INSERT INTO INV_USES_DEVICE VALUES (case_id, d),
+      @@matched_device_ids += d.device_id,
       @@device_edges += 1;
 
-  // Retrieval provenance: the prior cases actually used, so validator rule R09
-  // can check a citation against the graph rather than against the answer.
+  // Retrieval provenance: the prior cases actually used.
+  //
+  // The edge is created here with placeholder attributes and its real
+  // similarity and reasons are applied immediately afterwards by
+  // graph/case_writer.py, which is the single entry point callers use.
+  //
+  // They are not set here because GSQL rejects a MAP parameter accessor inside
+  // ACCUM with TYP-1001, so there is no way to look up a per-case similarity
+  // while iterating the matched cases. Leaving them at zero permanently was the
+  // worse option: the edge then cannot answer WHY a case was cited, which is
+  // the question retrieval provenance exists for.
   CLOSED = {ClosedCase.*};
   similar = SELECT k FROM CLOSED:k WHERE similar_case_ids.contains(k.case_id)
     ACCUM
@@ -143,7 +154,25 @@ CREATE QUERY write_investigation_case_v1(
   cited = SELECT p FROM CHUNKS:p WHERE policy_chunk_ids.contains(p.chunk_id)
     ACCUM
       INSERT INTO INV_CITES_POLICY VALUES (case_id, p),
+      @@matched_chunk_ids += p.chunk_id,
       @@policy_edges += 1;
+
+  STRING on_card_unmatched = "";
+  IF on_card_id != "" AND @@on_card_edges == 0 THEN
+    on_card_unmatched = on_card_id;
+  END;
+
+  // Matched is always a subset of requested, so the difference in sizes is the
+  // unmatched count. Computed this way because GSQL rejects both a local
+  // SET<STRING> declaration and a chained .size() on a MINUS expression.
+  INT unmatched_total =
+    (affected_txn_ids.size() - @@matched_txn_ids.size())
+    + (connected_card_ids.size() - @@matched_card_ids.size())
+    + (similar_case_ids.size() - @@matched_case_ids.size())
+    + (device_profile_ids.size() - @@matched_device_ids.size())
+    + (policy_chunk_ids.size() - @@matched_chunk_ids.size());
+
+  BOOL write_complete = (unmatched_total == 0 AND on_card_unmatched == "");
 
   PRINT case_id AS case_id;
   PRINT @@txn_edges AS affected_txn_edges_written;
@@ -159,7 +188,22 @@ CREATE QUERY write_investigation_case_v1(
   PRINT (affected_txn_ids MINUS @@matched_txn_ids) AS unmatched_txn_ids;
   PRINT (connected_card_ids MINUS @@matched_card_ids) AS unmatched_card_ids;
   PRINT (similar_case_ids MINUS @@matched_case_ids) AS unmatched_case_ids;
+  PRINT (device_profile_ids MINUS @@matched_device_ids) AS unmatched_device_ids;
+  PRINT (policy_chunk_ids MINUS @@matched_chunk_ids) AS unmatched_policy_chunk_ids;
+  PRINT unmatched_total AS unmatched_identifier_count;
+  PRINT on_card_unmatched AS unmatched_on_card_id;
+
   PRINT affected_txn_ids.size() AS affected_txn_ids_requested;
   PRINT connected_card_ids.size() AS connected_card_ids_requested;
   PRINT similar_case_ids.size() AS similar_case_ids_requested;
+  PRINT device_profile_ids.size() AS device_profile_ids_requested;
+  PRINT policy_chunk_ids.size() AS policy_chunk_ids_requested;
+
+  // A write that asserted only some of the evidence it was given is PARTIAL,
+  // and the caller must treat it as a failure rather than a receipt. An answer
+  // may set written_to_graph=true only when the graph holds everything the
+  // answer claims, so a silently dropped edge cannot become a case that cites
+  // evidence the graph does not contain.
+  PRINT write_complete AS write_complete;
+  PRINT (NOT write_complete) AS write_partial;
 }
