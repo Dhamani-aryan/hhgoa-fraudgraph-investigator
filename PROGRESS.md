@@ -67,6 +67,24 @@ Gate 1 is complete and its six review findings are fixed.
     the features that deliberately live in other queries are now named rather
     than left ambiguous.
 
+### Gate 2C corrections
+
+14. **The write receipt never read the case back.** `graph/case_writer.py`
+    trusted the write query's own report of what it matched, so a stale edge
+    left by an earlier write, a changed attribute or a lost similarity could
+    not be seen. `write_case` now calls `read_investigation_case_v1`
+    independently after the write and compares all 24 payload attributes
+    (floats by tolerance, datetimes by value), requested versus stored ids for
+    all five relationship sets plus the on-card edge in both directions, every
+    read-back edge count, and each cited case's similarity and reasons. The
+    receipt carries `read_back_verified` and the named mismatches, and
+    `WriteReceipt.ok` now requires `complete`, no errors and
+    `read_back_verified`. `written_to_graph` and `graph_case_id` are exposed on
+    the receipt and are true/non-empty only when `ok`. Measured live: rewriting
+    the fixture with one transaction instead of three reports
+    `complete=True` from the write query and fails the read-back with
+    "stored but not requested", which the write query alone cannot detect.
+
 ### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while

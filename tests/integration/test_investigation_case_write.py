@@ -280,6 +280,60 @@ def test_an_unmatched_on_card_id_is_reported(connection):
         connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
 
 
+# --- independent read-back -------------------------------------------------
+
+
+def test_a_verified_write_reads_back_and_sets_the_answer_fields(connection):
+    """written_to_graph and graph_case_id come from the receipt, and only after read-back."""
+    from graph.case_writer import write_case
+
+    receipt = write_case(connection, payload())
+    try:
+        assert receipt.read_back_mismatches == []
+        assert receipt.read_back_verified is True
+        assert receipt.ok is True
+        assert receipt.written_to_graph is True
+        assert receipt.graph_case_id == TEST_CASE_ID
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_a_stale_edge_from_an_earlier_write_fails_the_read_back(connection):
+    """The write query reports complete; only the read-back sees the old edges.
+
+    Edges are additive, so rewriting with fewer transactions leaves the earlier
+    ones. The graph then does not mirror the answer and must not be a receipt
+    for it.
+    """
+    from graph.case_writer import write_case
+
+    write_case(connection, payload())
+    try:
+        receipt = write_case(connection, payload(affected_txn_ids=["3450436"]))
+        assert receipt.complete is True, "the write query alone cannot see this"
+        assert receipt.read_back_verified is False
+        assert receipt.ok is False
+        assert receipt.written_to_graph is False
+        assert receipt.graph_case_id == ""
+        assert any("stored but not requested" in item for item in receipt.read_back_mismatches)
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_the_read_back_detects_a_value_changed_after_the_write(connection):
+    """The comparison reads the graph, not the write query's own report."""
+    from graph.case_writer import read_case, verify_read_back, write_case
+
+    receipt = write_case(connection, payload())
+    try:
+        assert receipt.ok is True
+        connection.upsertVertex("InvestigationCase", TEST_CASE_ID, {"verdict": "legitimate"})
+        mismatches = verify_read_back(payload(), read_case(connection, TEST_CASE_ID))
+        assert any("verdict" in item for item in mismatches), mismatches
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
 def test_a_partial_write_describes_what_was_missing(connection):
     """The caller must be able to act on the receipt, not just see a boolean."""
     from graph.case_writer import write_case
