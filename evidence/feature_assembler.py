@@ -294,6 +294,7 @@ def _one_hop(build: _Builder, values) -> None:
         "card_velocity_to_anchor",
         "burst_transitions",
         "device_is_novel_for_card",
+        "card_prior_transactions_on_device",
     )
     device = (
         "device_degree_1h",
@@ -347,20 +348,27 @@ def _one_hop(build: _Builder, values) -> None:
     has_device = bool(values.get("device"))
     if not has_device:
         build.mark(
-            device + ("device_is_novel_for_card",),
+            device + ("device_is_novel_for_card", "card_prior_transactions_on_device"),
             source,
             "not_applicable",
             "the flagged transaction has no strong device signature",
         )
     elif values.get("device_scan_skipped"):
         build.mark(
-            device + ("device_is_novel_for_card",),
+            device + ("device_is_novel_for_card", "card_prior_transactions_on_device"),
             source,
             "withheld",
             "device lifetime volume exceeds the scan budget",
         )
     else:
         build.add("device_is_novel_for_card", values.get("device_is_novel_for_card"), source)
+        build.add(
+            "card_prior_transactions_on_device",
+            values.get("card_prior_transactions_on_device"),
+            source,
+            unit="transactions",
+            reason="this card's transactions on the device before the flagged one",
+        )
         for scale in ("1h", "24h", "7d"):
             build.add(f"device_degree_{scale}", values.get(f"device_degree_{scale}"), source)
         build.add("device_degree_to_anchor", values.get("device_degree_to_cutoff"), source)

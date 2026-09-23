@@ -278,6 +278,28 @@ $300.14, agreeing with the local sum. 29 unit and 11 live tests.
   `small_online_authorizations_1h_before` (online, under $5, in the hour before
   the flagged transaction), not the lifetime burst count.
 
+### Gate 2H GraphRAG evidence package and citation validation
+
+- `evidence/models.py` (strict Pydantic), `evidence/ledger.py` (append-only,
+  SHA-256 hash chain; trace ids excluded from the hash so identical evidence
+  hashes identically), `evidence/context_builder.py`, `evidence/citations.py`.
+- Four sections: `trigger_and_baseline`, `graph_evidence`, `case_memory`,
+  `policy_context`. Every item: evidence id, templated claim, source type, ref,
+  query or document, bundle version, redacted parameters, entity ids, typed
+  value, feature names, anchor and data-max times, leakage flag, independence
+  group, strength, availability, retrieval or path metadata, trace id, content
+  and previous hash. Claims come from fixed templates over typed values; no
+  model writes a fact.
+- An item is contradicting only when its query completed. Withheld, refused
+  and inapplicable sections produce neutral items that say so. Neighbour
+  outcomes on a supernode device are neutral, because they are raw degree.
+- `validate_package` runs twelve named checks (ids, source references, entity
+  resolution against every id the graph or vector results returned, policy
+  anchors, retrieved prior cases with score and reasons, anchor crossing,
+  resource prechecks, caps and sections, WCC segments, unavailable-is-neutral,
+  hash chain, presence of all three strengths). 25 unit tests, including one
+  mutation per failure mode.
+
 ### Gate 2 leakage findings, fixed
 
 Four review findings, all the same class — a query that looks bounded while
