@@ -24,18 +24,26 @@ def strip_prefix(key: str) -> str:
 
 
 def normalize_row(item: Any) -> Any:
-    """Flatten one result row to a plain dict where possible."""
+    """Flatten one vertex row to a plain dict.
+
+    Only a row shaped ``{"v_id": ..., "attributes": {...}}`` is rewritten.
+    Every other value is returned untouched, and that restraint is deliberate:
+    a MapAccum printed by a query is a plain dict whose KEYS are data, not
+    aliased attribute names. Stripping prefixes from it turned the region
+    histogram {"327.0": 1, "325.0": 10, ...} into {"0": 7}, because every key
+    was split on its first dot and then collapsed.
+    """
     if not isinstance(item, dict):
         return item
     attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        row = {strip_prefix(key): value for key, value in attributes.items()}
-        # Keep the vertex id, which is often the only place the primary key
-        # appears when a query prints a subset of attributes.
-        if "v_id" in item and "v_id" not in row:
-            row["v_id"] = item["v_id"]
-        return row
-    return {strip_prefix(key): value for key, value in item.items()}
+    if not isinstance(attributes, dict):
+        return item
+    row = {strip_prefix(key): value for key, value in attributes.items()}
+    # Keep the vertex id, which is often the only place the primary key appears
+    # when a query prints a subset of attributes.
+    if "v_id" in item and "v_id" not in row:
+        row["v_id"] = item["v_id"]
+    return row
 
 
 def normalize_block(value: Any) -> Any:

@@ -1,0 +1,79 @@
+// get_card_baseline_v1
+//
+// What is normal for this card, as of the anchor.
+//
+// Robust statistics by design. The plan requires median and MAD rather than
+// mean and standard deviation alone, because a single large purchase drags a
+// mean and inflates a standard deviation, which is exactly the situation a
+// fraud baseline is asked about. A mean-based "unusual amount" test would call
+// the outlier normal after the outlier arrives.
+//
+// Windowed: the same counts over 1h, 24h, 7d, 30d and lifetime-to-anchor, so
+// velocity can be read at the scale the pattern lives at.
+//
+// Everything is bounded by as_of_ts. A baseline built from later activity
+// would describe behaviour the investigator could not have known.
+
+CREATE QUERY get_card_baseline_v1(
+  STRING card_id,
+  STRING as_of_ts,
+  INT max_amounts = 2000
+) FOR GRAPH HHGOAFraud {
+  DATETIME cutoff = to_datetime(as_of_ts);
+  INT anchor_epoch = datetime_to_epoch(cutoff);
+
+  ListAccum<DOUBLE> @@amounts;
+  SumAccum<INT> @@n_lifetime, @@n_1h, @@n_24h, @@n_7d, @@n_30d;
+  SumAccum<INT> @@n_online, @@n_in_person;
+  SumAccum<DOUBLE> @@total_amount;
+  MinAccum<DATETIME> @@first_seen;
+  MaxAccum<DATETIME> @@last_seen;
+  SetAccum<STRING> @@regions, @@product_codes, @@purchaser_domains;
+  MapAccum<STRING, SumAccum<INT>> @@region_counts, @@product_counts;
+
+  SEED = {PaymentCard.*};
+  card = SELECT c FROM SEED:c WHERE c.card_id == card_id;
+
+  history = SELECT t FROM card:c -(MADE>)- Transaction:t
+    WHERE t.ts <= cutoff
+    ACCUM
+      @@amounts += abs(t.amount),
+      @@n_lifetime += 1,
+      @@total_amount += abs(t.amount),
+      @@first_seen += t.ts,
+      @@last_seen += t.ts,
+      CASE WHEN t.channel == "online" THEN @@n_online += 1
+           ELSE @@n_in_person += 1 END,
+      CASE WHEN t.addr1 != "" THEN
+        @@regions += t.addr1, @@region_counts += (t.addr1 -> 1) END,
+      CASE WHEN t.product_cd != "" THEN
+        @@product_codes += t.product_cd, @@product_counts += (t.product_cd -> 1) END,
+      CASE WHEN t.p_email_domain != "" THEN @@purchaser_domains += t.p_email_domain END,
+      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 3600 THEN @@n_1h += 1 END,
+      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 86400 THEN @@n_24h += 1 END,
+      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 604800 THEN @@n_7d += 1 END,
+      CASE WHEN datetime_to_epoch(t.ts) > anchor_epoch - 2592000 THEN @@n_30d += 1 END
+    LIMIT max_amounts;
+
+  PRINT @@n_lifetime AS n_transactions_to_anchor;
+  PRINT @@n_1h AS n_last_1h, @@n_24h AS n_last_24h,
+        @@n_7d AS n_last_7d, @@n_30d AS n_last_30d;
+  PRINT @@n_online AS n_online, @@n_in_person AS n_in_person;
+  PRINT @@total_amount AS total_amount_usd;
+  PRINT @@first_seen AS first_seen, @@last_seen AS last_seen;
+  PRINT @@regions AS known_regions, @@product_codes AS known_product_codes;
+  PRINT @@purchaser_domains AS known_purchaser_domains;
+  PRINT @@region_counts AS region_counts, @@product_counts AS product_counts;
+
+  // The raw amounts go back so median, MAD and percentiles are computed in
+  // Python, where zero-MAD is handled explicitly. GSQL has no median.
+  PRINT @@amounts AS amounts_to_anchor;
+
+  // Devices this card is already known to use, which is what makes a device
+  // "new" for this account rather than merely new to the analyst.
+  known_devices = SELECT d FROM card:c -(MADE>)- Transaction:t -(FROM_DEVICE>)- DeviceProfile:d
+    WHERE t.ts <= cutoff;
+  PRINT known_devices[
+    known_devices.device_id, known_devices.label, known_devices.signature_strength
+  ] AS known_devices;
+}

@@ -93,3 +93,43 @@ def test_empty_result_normalizes_to_an_empty_dict():
 def test_blocks_merge_into_one_dict():
     merged = normalize_result(VERTEX_BLOCK)
     assert set(merged) == {"window_transactions", "returned_rows", "row_cap"}
+
+
+# --- map results must not be mangled ---------------------------------------
+
+
+MAP_BLOCK = [
+    {"region_history": {"327.0": 1, "325.0": 10, "204.0": 5, "264.0": 7}},
+    {"product_counts": {"S": 1, "H": 5, "W": 17, "R": 30}},
+]
+
+
+def test_a_map_result_keeps_its_keys_intact():
+    """Region codes contain dots, and they are data, not aliased attributes.
+
+    Stripping prefixes from a MapAccum collapsed the whole region histogram
+    onto the key "0", because every key was split on its first dot.
+    """
+    merged = normalize_result(MAP_BLOCK)
+    assert merged["region_history"] == {"327.0": 1, "325.0": 10, "204.0": 5, "264.0": 7}
+
+
+def test_a_map_with_plain_keys_is_also_untouched():
+    assert normalize_result(MAP_BLOCK)["product_counts"] == {
+        "S": 1,
+        "H": 5,
+        "W": 17,
+        "R": 30,
+    }
+
+
+def test_scalar_reads_a_map_whole():
+    assert scalar(MAP_BLOCK, "region_history")["204.0"] == 5
+
+
+def test_vertex_rows_are_still_flattened_alongside_maps():
+    """The fix must not stop vertex rows being normalized."""
+    combined = VERTEX_BLOCK + MAP_BLOCK
+    merged = normalize_result(combined)
+    assert merged["window_transactions"][0]["txn_id"] == "3450436"
+    assert merged["region_history"]["327.0"] == 1

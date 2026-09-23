@@ -1,0 +1,73 @@
+// find_region_anomalies_v1
+//
+// Is the flagged transaction's billing region new for this card, and is the
+// card also active at home at the same time?
+//
+// The distinction the policy cares about: several days in one new region is a
+// trip, while a new region alongside continuing home activity is a clone. The
+// query returns both sides so the caller can tell them apart instead of
+// treating any new region as fraud.
+
+CREATE QUERY find_region_anomalies_v1(
+  STRING card_id,
+  STRING flagged_txn_id,
+  STRING as_of_ts,
+  INT home_window_hours = 72,
+  INT max_rows = 200
+) FOR GRAPH HHGOAFraud {
+  DATETIME cutoff = to_datetime(as_of_ts);
+  MapAccum<STRING, SumAccum<INT>> @@region_history;
+  SumAccum<INT> @@flagged_region_prior_count;
+  SumAccum<INT> @@home_region_activity_in_window;
+  MinAccum<DATETIME> @@flagged_region_first_seen;
+  MaxAccum<DATETIME> @@flagged_region_last_seen;
+
+  SEED = {Transaction.*};
+  flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id;
+
+  STRING flagged_region = "";
+  DATETIME flagged_ts;
+  tmp = SELECT t FROM flagged:t
+    POST-ACCUM flagged_region = t.addr1, flagged_ts = t.ts;
+
+  PRINT flagged_region AS flagged_region, flagged_ts AS flagged_ts;
+
+  CARDS = {PaymentCard.*};
+  card = SELECT c FROM CARDS:c WHERE c.card_id == card_id;
+
+  // Region history strictly before the flagged transaction, so the flagged
+  // transaction cannot make its own region look familiar.
+  history = SELECT t FROM card:c -(MADE>)- Transaction:t
+    WHERE t.ts <= cutoff AND t.txn_id != flagged_txn_id AND t.addr1 != ""
+    ACCUM
+      @@region_history += (t.addr1 -> 1),
+      CASE WHEN t.addr1 == flagged_region THEN
+        @@flagged_region_prior_count += 1,
+        @@flagged_region_first_seen += t.ts,
+        @@flagged_region_last_seen += t.ts
+      END
+    LIMIT max_rows;
+
+  PRINT @@region_history AS region_history;
+  PRINT @@flagged_region_prior_count AS flagged_region_prior_count;
+  PRINT (@@flagged_region_prior_count == 0) AS region_is_new_for_card;
+  PRINT @@flagged_region_first_seen AS flagged_region_first_seen;
+  PRINT @@flagged_region_last_seen AS flagged_region_last_seen;
+
+  // Activity in a DIFFERENT region close in time to the flagged transaction.
+  // Simultaneous presence in two regions is what separates a clone from a trip.
+  concurrent = SELECT t FROM card:c -(MADE>)- Transaction:t
+    WHERE t.ts <= cutoff
+      AND t.addr1 != ""
+      AND t.addr1 != flagged_region
+      AND abs(datetime_to_epoch(t.ts) - datetime_to_epoch(flagged_ts)) <= home_window_hours * 3600
+    ACCUM @@home_region_activity_in_window += 1
+    ORDER BY t.ts DESC
+    LIMIT max_rows;
+
+  PRINT @@home_region_activity_in_window AS other_region_activity_in_window;
+  PRINT concurrent[
+    concurrent.txn_id, concurrent.ts, concurrent.addr1, concurrent.amount,
+    concurrent.channel
+  ] AS concurrent_other_region_activity;
+}
