@@ -10,81 +10,49 @@
 // ---------------------------------------------------------------------------
 // WHAT THIS IS
 // ---------------------------------------------------------------------------
-// A weakly connected component search implemented in GSQL, using the standard
-// min-label formulation: every card carries a component label, a card adopts
-// the smallest label it can reach, and the component is the fixed point. It is
-// run as breadth-first expansion from the seed card, which yields that card's
-// component rather than labelling the whole graph -- the only component an
-// investigation is asking about.
+// A weakly connected component search in GSQL, run as breadth-first expansion
+// from the seed card so it yields that card's component rather than labelling
+// the whole graph -- the only component an investigation is asking about.
 //
-// It is written here rather than called from the TigerGraph Graph Data Science
+// Written here rather than called from the TigerGraph Graph Data Science
 // library because that library is not installed in this workspace, and because
-// tg_wcc labels whole vertex sets and offers no way to restrict edges to a time
-// window. A component computed over all six months would answer a question the
+// tg_wcc labels whole vertex sets with no way to restrict edges to a time
+// window. A component over all six months would answer a question the
 // investigator never asked.
 //
 // ---------------------------------------------------------------------------
-// WHY IT IS TIME-BOUNDED
+// ELIGIBILITY IS COUNTED IN DISTINCT CARDS
 // ---------------------------------------------------------------------------
-// Two cards are joined only when they used the same device WITHIN
-// window_hours of the anchor and at or before effective_cutoff =
-// min(anchor_ts, as_of_ts). A device shared six months apart links nothing:
-// co-presence over a long enough span is coincidence, not coordination, and a
-// component built without a window would merge most of the graph.
+// A device joins cards only when it touches at least 2 and at most
+// max_device_cards DISTINCT CARDS in-window.
 //
-// ---------------------------------------------------------------------------
-// SUPERNODE CONTROL
-// ---------------------------------------------------------------------------
-// A device joins cards only when the number of distinct cards it touches
-// IN-WINDOW is at least 2 and at most max_device_cards. The in-window count is
-// temporal-safe by construction, unlike the stored n_cards attribute, which is
-// a lifetime figure.
-//
-// d.n_transactions is read as an O(1) RESOURCE gate to skip devices too
-// voluminous to walk. It is a lifetime aggregate, it decides only affordability,
-// it is never evidence, and the cards it would have contributed are reported as
-// skipped rather than silently dropped.
+// An earlier version counted transactions instead. One card making fifty
+// purchases on its own laptop then looked like fifty cards and was excluded as
+// a supernode, while the genuinely shared devices this query exists to find
+// were judged on a number that had nothing to do with sharing. A threshold only
+// means something when the thing counted is the thing it is named after.
 //
 // ---------------------------------------------------------------------------
-// WHY THE DEFAULTS ARE TIGHT
+// ELIGIBILITY IS COMPUTED ONLY WHERE THE SEARCH GOES
 // ---------------------------------------------------------------------------
-// max_hops defaults to 1, so only cards that shared a device with the seed
-// itself are joined. Transitive chaining is what manufactures rings: measured
-// on this graph from a July cluster card, allowing three hops through devices
-// touching as few as two cards each still reached 46 cards, and raising the
-// device threshold to 100 reached 668 before the cap -- a component that large
-// is the graph, not a ring. Policy R6 asks about several cards sharing one
-// device profile, which is the one-hop question. Multi-hop remains available
-// and each member records the hop it was reached at, so a caller that widens
-// the search can still weigh how far away a card is.
+// Eligibility is evaluated per hop, for the devices the current frontier
+// actually reaches in-window, and cached on the vertex so a device is costed
+// once per run. An earlier version scanned every DeviceProfile in the graph on
+// every call -- 9,706 devices and their whole transaction history -- to answer
+// a question about one card's neighbourhood.
 //
-// max_device_cards defaults to 5. The Gate 0 audit put the median cards per
-// strong device signature at 1-2, so five is already several times typical.
-// Measured at one hop over a two-week window: 5 gives 20 cards, 10 gives 46,
-// 30 gives 183 and 100 gives 668. Gate 3 tunes this with the other detection
-// thresholds against the historical replay.
-//
-// Component size is a feature, never a verdict. It is reported next to the
-// fraud enrichment below so a claim can rest on the combination policy R6
-// requires rather than on size alone.
-//
-// stop_expanding_above is a STOP CONDITION, not a hard cap, and is named for
-// what it does. It is tested after each hop, so a single hop can overshoot it:
-// seeded from a July cluster card with the device threshold at 100, one hop
-// reached 668 cards against a stop value of 200. Calling it a cap would repeat
-// the mistake of advertising a bound the implementation does not enforce.
-//
-// The real per-hop bound is max_device_cards multiplied by the devices the
-// frontier touches, which is why that threshold is the one that matters and
-// why it defaults low.
+// d.n_transactions gates that work as an O(1) RESOURCE precheck. It is a
+// lifetime aggregate, it decides only affordability, it is never evidence, and
+// the devices it excludes are counted and reported.
 //
 // ---------------------------------------------------------------------------
 // PROVENANCE
 // ---------------------------------------------------------------------------
-// The component alone is not evidence anyone can check. Every joined card comes
-// back with the device that joined it and the hop at which it was reached, so a
-// claim about a ring resolves to named devices and a path length rather than to
-// a number the algorithm produced.
+// A component alone is not evidence anyone can check. Every joined card comes
+// back with the devices that joined it, the hop it was reached at, and the
+// PREDECESSOR CARDS it was reached from. At two hops or more the predecessor is
+// what makes the path reconstructible: without it a card three steps away is
+// asserted to be connected with no way to say through whom.
 
 CREATE QUERY wcc_shared_origin_v1(
   STRING seed_card_id,
@@ -99,16 +67,20 @@ CREATE QUERY wcc_shared_origin_v1(
   OrAccum @visited;
   SumAccum<INT> @hop;
   SetAccum<STRING> @via_devices;
+  SetAccum<STRING> @via_from_cards;
 
-  SumAccum<INT> @in_window_cards;
+  SetAccum<STRING> @in_window_card_set;
+  OrAccum @eligibility_computed;
   OrAccum @device_eligible;
-  OrAccum @device_skipped_over_budget;
+  OrAccum @device_over_budget;
+  OrAccum @device_considered;
 
   SetAccum<STRING> @@component_cards;
   SetAccum<STRING> @@linking_devices;
-  SetAccum<STRING> @@skipped_devices;
   SetAccum<STRING> @@fraud_cards;
   SumAccum<INT> @@hops_run;
+  SumAccum<INT> @@devices_considered;
+  SumAccum<INT> @@devices_over_budget;
   BOOL expansion_stopped_early = FALSE;
 
   DATETIME anchor = to_datetime(anchor_ts);
@@ -128,32 +100,44 @@ CREATE QUERY wcc_shared_origin_v1(
   PRINT stop_expanding_above AS stop_expanding_above;
 
   CARDS = {PaymentCard.*};
+  DEVICES = {DeviceProfile.*};
+
   seed = SELECT c FROM CARDS:c WHERE c.card_id == seed_card_id
     ACCUM c.@visited = TRUE, c.@hop = 0
     POST-ACCUM @@component_cards += c.card_id;
-
-  // Eligibility of every device, measured in-window. Done once: a device's
-  // in-window card count does not change as the search expands.
-  DEVICES = {DeviceProfile.*};
-  gated = SELECT d FROM DEVICES:d
-    ACCUM CASE WHEN d.n_transactions > max_device_rows
-      THEN d.@device_skipped_over_budget += TRUE END;
-
-  affordable = SELECT d FROM DEVICES:d WHERE NOT d.@device_skipped_over_budget;
-
-  counted = SELECT d FROM affordable:d -(DEVICE_USED_IN>)- Transaction:t
-    WHERE t.ts <= effective_cutoff
-      AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_seconds
-    ACCUM d.@in_window_cards += 1;
-
-  eligible = SELECT d FROM affordable:d
-    WHERE d.@in_window_cards >= 2 AND d.@in_window_cards <= max_device_cards
-    ACCUM d.@device_eligible += TRUE;
 
   frontier = seed;
 
   WHILE frontier.size() > 0 AND @@hops_run < max_hops AND NOT expansion_stopped_early DO
     @@hops_run += 1;
+
+    // Devices this frontier actually reaches in-window, not every device.
+    candidates = SELECT d
+      FROM frontier:c -(MADE>)- Transaction:t -(FROM_DEVICE>)- DeviceProfile:d
+      WHERE t.ts <= effective_cutoff
+        AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_seconds
+        AND NOT d.@eligibility_computed
+      ACCUM d.@device_considered += TRUE;
+
+    // Resource precheck before any per-device counting.
+    gated = SELECT d FROM candidates:d
+      ACCUM CASE WHEN d.n_transactions > max_device_rows
+        THEN d.@device_over_budget += TRUE END;
+
+    within_budget = SELECT d FROM candidates:d WHERE NOT d.@device_over_budget;
+
+    // DISTINCT CARDS in-window, which is what the threshold is named after.
+    counted = SELECT d FROM within_budget:d -(DEVICE_USED_IN>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+        AND abs(datetime_to_epoch(t.ts) - anchor_epoch) <= window_seconds
+      ACCUM d.@in_window_card_set += t.card_id;
+
+    decided = SELECT d FROM candidates:d
+      POST-ACCUM
+        d.@eligibility_computed = TRUE,
+        CASE WHEN d.@in_window_card_set.size() >= 2
+              AND d.@in_window_card_set.size() <= max_device_cards
+          THEN d.@device_eligible = TRUE END;
 
     frontier = SELECT c2
       FROM frontier:c1 -(MADE>)- Transaction:t1
@@ -168,6 +152,7 @@ CREATE QUERY wcc_shared_origin_v1(
         AND abs(datetime_to_epoch(t2.ts) - anchor_epoch) <= window_seconds
       ACCUM
         c2.@via_devices += d.device_id,
+        c2.@via_from_cards += c1.card_id,
         @@linking_devices += d.device_id
       POST-ACCUM
         c2.@visited = TRUE,
@@ -179,22 +164,24 @@ CREATE QUERY wcc_shared_origin_v1(
     END;
   END;
 
-  skipped = SELECT d FROM DEVICES:d WHERE d.@device_skipped_over_budget
-    ACCUM @@skipped_devices += d.device_id;
+  tally = SELECT d FROM DEVICES:d WHERE d.@device_considered
+    ACCUM
+      @@devices_considered += 1,
+      CASE WHEN d.@device_over_budget THEN @@devices_over_budget += 1 END;
 
   PRINT @@hops_run AS hops_run;
   PRINT expansion_stopped_early AS expansion_stopped_early;
   PRINT @@component_cards.size() AS component_size;
   PRINT @@component_cards AS component_cards;
   PRINT @@linking_devices AS linking_devices;
-  PRINT @@skipped_devices.size() AS devices_skipped_over_budget;
+  PRINT @@devices_considered AS devices_considered;
+  PRINT @@devices_over_budget AS devices_skipped_over_budget;
 
-  // Fraud enrichment over the component: which member cards already carried a
-  // case confirmed as fraud at the effective cutoff. A component of unremarkable
-  // cards and a component where half the members are known fraud are different
-  // findings, and size alone cannot tell them apart.
-  component_cards_set = SELECT c FROM CARDS:c WHERE c.@visited;
-  component_fraud = SELECT k FROM component_cards_set:c -(CARD_HAS_CASE>)- ClosedCase:k
+  // Fraud enrichment over the component. A component of unremarkable cards and
+  // one where half the members are known fraud are different findings, and size
+  // alone cannot tell them apart.
+  component_set = SELECT c FROM CARDS:c WHERE c.@visited;
+  component_fraud = SELECT k FROM component_set:c -(CARD_HAS_CASE>)- ClosedCase:k
     WHERE k.closed_at <= effective_cutoff AND k.outcome == "confirmed_fraud"
     ACCUM @@fraud_cards += k.card_id;
 
@@ -205,13 +192,13 @@ CREATE QUERY wcc_shared_origin_v1(
     component_fraud.closed_at
   ] AS component_prior_fraud_cases;
 
-  // Provenance: every joined card with the devices that joined it and the hop
-  // at which it was reached.
   members = SELECT c FROM CARDS:c WHERE c.@visited AND c.card_id != seed_card_id;
   PRINT members[members.card_id, members.customer_id, members.@hop AS hop,
-                members.@via_devices AS via_devices] AS component_members;
+                members.@via_devices AS via_devices,
+                members.@via_from_cards AS via_from_cards] AS component_members;
 
-  linking = SELECT d FROM DEVICES:d WHERE d.@device_eligible AND d.@in_window_cards >= 2;
+  linking = SELECT d FROM DEVICES:d WHERE d.@device_eligible;
   PRINT linking[linking.device_id, linking.label, linking.signature_strength,
-                linking.@in_window_cards AS in_window_cards] AS eligible_devices;
+                linking.@in_window_card_set AS in_window_card_set]
+    AS eligible_devices;
 }

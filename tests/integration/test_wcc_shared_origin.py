@@ -141,3 +141,80 @@ def test_an_isolated_card_returns_only_itself(connection):
     """A card sharing no eligible device is its own component, not an error."""
     result = component(connection, window_hours=1, max_device_cards=2)
     assert scalar(result, "component_size") >= 1
+
+
+# --- eligibility counts distinct cards -------------------------------------
+
+
+def test_eligibility_counts_distinct_cards_not_transactions(connection):
+    """The threshold must count the thing it is named after.
+
+    Counting transactions made one card's fifty purchases on its own laptop
+    look like fifty cards, excluding it as a supernode, while genuinely shared
+    devices were judged on a number unrelated to sharing.
+    """
+    result = component(connection, window_hours=336, max_device_cards=5)
+    devices = rows(result, "eligible_devices")
+    assert devices, "the fixture cluster should have eligible devices"
+    for device in devices:
+        cards = device["in_window_card_set"]
+        assert 2 <= len(cards) <= 5, f"{device['device_id']} has {len(cards)} cards"
+        # A set of card ids, not a transaction tally.
+        assert len(cards) == len(set(cards))
+
+
+def test_a_device_used_by_one_card_many_times_is_not_eligible(connection):
+    """Repeat purchases on a private device are not sharing."""
+    result = component(connection, window_hours=336, max_device_cards=5)
+    for device in rows(result, "eligible_devices"):
+        assert len(device["in_window_card_set"]) >= 2
+
+
+# --- eligibility work is scoped to the search ------------------------------
+
+
+def test_only_devices_the_frontier_reaches_are_costed(connection):
+    """An earlier version scanned all 9,706 devices to answer one card's question."""
+    result = component(connection, window_hours=336)
+    considered = scalar(result, "devices_considered")
+    assert considered > 0
+    assert considered < 9706, f"considered {considered} devices, close to the whole graph"
+
+
+def test_a_narrower_window_considers_fewer_devices(connection):
+    """Scoping must follow the search, so a tighter window costs less."""
+    wide = component(connection, window_hours=336)
+    narrow = component(connection, window_hours=1)
+    assert scalar(narrow, "devices_considered") <= scalar(wide, "devices_considered")
+
+
+# --- predecessor provenance ------------------------------------------------
+
+
+def test_every_member_records_the_card_it_was_reached_from(connection):
+    result = component(connection, window_hours=336)
+    members = rows(result, "component_members")
+    assert members
+    for member in members:
+        assert member["via_from_cards"], f"{member['card_id']} has no predecessor"
+
+
+def test_a_first_hop_member_is_reached_from_the_seed(connection):
+    result = component(connection, window_hours=336)
+    for member in rows(result, "component_members"):
+        if member["hop"] == 1:
+            assert SEED_CARD in member["via_from_cards"]
+
+
+def test_a_multi_hop_path_is_reconstructible(connection):
+    """Without a predecessor a distant card is asserted connected through nobody."""
+    result = component(connection, window_hours=336, max_hops=3, max_device_cards=3)
+    members = rows(result, "component_members")
+    distant = [item for item in members if item["hop"] >= 2]
+    assert distant, "three hops over this cluster should reach beyond the first ring"
+
+    reached = {SEED_CARD} | {item["card_id"] for item in members}
+    for member in distant:
+        assert member["via_from_cards"]
+        # The predecessor must itself be in the component, or the path is broken.
+        assert any(card in reached for card in member["via_from_cards"])
