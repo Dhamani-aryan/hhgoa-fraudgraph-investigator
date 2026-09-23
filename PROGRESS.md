@@ -111,6 +111,17 @@ Four findings from the Gate 1 review, fixed before any Gate 2 work.
    `missing_reverse_edge_types`. Commit `8937e40` carries this change alongside
    finding 1; its message describes only finding 1.
 
+5. **Recreation could still bypass the guard through the catalog.** Discovery
+   made two independent `LS` reads: the first established that the graph
+   exists, the second failed into empty sets, and `total_vertices()` over an
+   empty type set returned zero, permitting the drop. The vertex-count guard
+   never fired, because with no types there is nothing to count. Discovery now
+   reads the catalog once and refuses on either a failed read or an unparseable
+   membership line — "present but unreadable" is never represented as "present
+   and empty". Catalog errors are redacted. A genuinely empty graph, parsed as
+   `Graph HHGOAFraud()`, is still droppable, and a test pins that so the fix
+   cannot degrade into refusing to recreate at all.
+
 ### Retrieval quality, measured
 
 The query "three small online authorizations within an hour followed by a
