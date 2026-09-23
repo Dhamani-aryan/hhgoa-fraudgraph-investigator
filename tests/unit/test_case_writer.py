@@ -268,3 +268,59 @@ def test_a_lost_reason_is_a_mismatch():
     lost = read_result(PAYLOAD, reasons={"CC-1": "same_new_device", "CC-2": ""})
     mismatches = check(PAYLOAD, lost)
     assert any("reasons of CC-2" in item for item in mismatches)
+
+
+# --- provenance is mandatory -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("similarity", "reasons", "complaint"),
+    [
+        ({"CC-1": 0.82}, REASONS, "CC-2 is cited with no similarity"),
+        ({"CC-1": 0.82, "CC-2": 0.0}, REASONS, "not a finite value above 0"),
+        ({"CC-1": 0.82, "CC-2": float("nan")}, REASONS, "not a finite value above 0"),
+        ({"CC-1": 0.82, "CC-2": True}, REASONS, "not a finite value above 0"),
+        (SIMILARITY, {"CC-1": "same_new_device"}, "CC-2 is cited with no retrieval reason"),
+        (SIMILARITY, {"CC-1": "same_new_device", "CC-2": ""}, "no retrieval reason"),
+        (dict(SIMILARITY, **{"CC-9": 0.3}), REASONS, "CC-9, which is not cited"),
+    ],
+)
+def test_missing_or_placeholder_provenance_is_refused_before_any_write(
+    similarity, reasons, complaint
+):
+    connection = FakeConnection(write_result(), read_result(PAYLOAD))
+    receipt = write_case(connection, PAYLOAD, similarity=similarity, reasons=reasons)
+    assert connection.calls == [], "nothing may reach the graph"
+    assert connection.upserts == []
+    assert receipt.write_attempted is False
+    assert receipt.ok is False
+    assert receipt.written_to_graph is False
+    assert any(complaint in item for item in receipt.errors), receipt.errors
+    assert "REFUSED" in receipt.describe()
+
+
+def test_a_case_with_no_citations_needs_no_provenance():
+    body = dict(PAYLOAD, similar_case_ids=[])
+    connection = FakeConnection(write_result(), read_result(body))
+    receipt = write_case(connection, body)
+    assert receipt.ok is True
+
+
+def test_every_cited_case_is_attributed_with_its_own_values():
+    receipt, connection = run(read_result(PAYLOAD))
+    attributed = {args[4]: args[5] for args in connection.upserts}
+    assert attributed == {
+        "CC-1": {"similarity": 0.82, "reasons": "same_new_device"},
+        "CC-2": {"similarity": 0.41, "reasons": "opposite_outcome"},
+    }
+    assert receipt.similarity_edges_attributed == 2
+
+
+def test_the_read_back_rejects_a_stored_placeholder_even_if_it_was_sent():
+    """Belt and braces: the stored edge is judged on its own, not only against the payload."""
+    placeholder = {"CC-1": 0.0, "CC-2": 0.41}
+    empty = {"CC-1": "", "CC-2": "opposite_outcome"}
+    stored = read_result(PAYLOAD, similarity=placeholder, reasons=empty)
+    mismatches = verify_read_back(PAYLOAD, stored, similarity=placeholder, reasons=empty)
+    assert any("CC-1 is stored with placeholder similarity" in item for item in mismatches)
+    assert any("CC-1 is stored with no retrieval reason" in item for item in mismatches)

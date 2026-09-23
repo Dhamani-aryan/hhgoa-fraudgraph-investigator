@@ -58,6 +58,23 @@ def payload(**overrides) -> dict:
     return base
 
 
+def provenance(body: dict) -> dict:
+    """A real similarity and a non-empty reason for every cited case."""
+    ids = body["similar_case_ids"]
+    return {
+        "similarity": {case_id: 0.5 for case_id in ids},
+        "reasons": {case_id: "fixture_reason" for case_id in ids},
+    }
+
+
+def write(connection, **overrides):
+    """write_case with full provenance, the way every real caller must call it."""
+    from graph.case_writer import write_case
+
+    body = payload(**overrides)
+    return write_case(connection, body, **provenance(body))
+
+
 @pytest.fixture(scope="module")
 def connection():
     try:
@@ -234,9 +251,7 @@ def test_attributes_are_only_applied_to_matched_cases(connection):
 
 
 def test_a_complete_write_reports_complete(connection):
-    from graph.case_writer import write_case
-
-    receipt = write_case(connection, payload())
+    receipt = write(connection)
     try:
         assert receipt.complete is True
         assert receipt.ok is True
@@ -258,9 +273,8 @@ def test_a_complete_write_reports_complete(connection):
 )
 def test_every_identifier_kind_is_reported_when_unmatched(connection, field_name, override):
     """Device, policy and on-card ids were previously dropped in silence."""
-    from graph.case_writer import write_case
 
-    receipt = write_case(connection, payload(**override))
+    receipt = write(connection, **override)
     try:
         assert receipt.unmatched[field_name], f"{field_name} was not reported"
         assert receipt.complete is False
@@ -270,9 +284,7 @@ def test_every_identifier_kind_is_reported_when_unmatched(connection, field_name
 
 
 def test_an_unmatched_on_card_id_is_reported(connection):
-    from graph.case_writer import write_case
-
-    receipt = write_case(connection, payload(on_card_id="C99999-K9"))
+    receipt = write(connection, on_card_id="C99999-K9")
     try:
         assert receipt.unmatched_on_card_id == "C99999-K9"
         assert receipt.ok is False
@@ -285,9 +297,8 @@ def test_an_unmatched_on_card_id_is_reported(connection):
 
 def test_a_verified_write_reads_back_and_sets_the_answer_fields(connection):
     """written_to_graph and graph_case_id come from the receipt, and only after read-back."""
-    from graph.case_writer import write_case
 
-    receipt = write_case(connection, payload())
+    receipt = write(connection)
     try:
         assert receipt.read_back_mismatches == []
         assert receipt.read_back_verified is True
@@ -305,11 +316,10 @@ def test_a_stale_edge_from_an_earlier_write_fails_the_read_back(connection):
     ones. The graph then does not mirror the answer and must not be a receipt
     for it.
     """
-    from graph.case_writer import write_case
 
-    write_case(connection, payload())
+    write(connection)
     try:
-        receipt = write_case(connection, payload(affected_txn_ids=["3450436"]))
+        receipt = write(connection, affected_txn_ids=["3450436"])
         assert receipt.complete is True, "the write query alone cannot see this"
         assert receipt.read_back_verified is False
         assert receipt.ok is False
@@ -322,13 +332,15 @@ def test_a_stale_edge_from_an_earlier_write_fails_the_read_back(connection):
 
 def test_the_read_back_detects_a_value_changed_after_the_write(connection):
     """The comparison reads the graph, not the write query's own report."""
-    from graph.case_writer import read_case, verify_read_back, write_case
+    from graph.case_writer import read_case, verify_read_back
 
-    receipt = write_case(connection, payload())
+    receipt = write(connection)
     try:
         assert receipt.ok is True
         connection.upsertVertex("InvestigationCase", TEST_CASE_ID, {"verdict": "legitimate"})
-        mismatches = verify_read_back(payload(), read_case(connection, TEST_CASE_ID))
+        mismatches = verify_read_back(
+            payload(), read_case(connection, TEST_CASE_ID), **provenance(payload())
+        )
         assert any("verdict" in item for item in mismatches), mismatches
     finally:
         connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
@@ -336,16 +348,109 @@ def test_the_read_back_detects_a_value_changed_after_the_write(connection):
 
 def test_a_partial_write_describes_what_was_missing(connection):
     """The caller must be able to act on the receipt, not just see a boolean."""
-    from graph.case_writer import write_case
 
-    receipt = write_case(
-        connection,
-        payload(device_profile_ids=["nosuchdevice"], policy_chunk_ids=["policy:NOPE"]),
+    receipt = write(
+        connection, device_profile_ids=["nosuchdevice"], policy_chunk_ids=["policy:NOPE"]
     )
     try:
         description = receipt.describe()
         assert "PARTIAL" in description
         assert "nosuchdevice" in description
         assert "policy:NOPE" in description
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+# --- similar-case provenance is mandatory ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("similarity", "reasons", "complaint"),
+    [
+        ({}, {"CC-0137": "same_new_device"}, "no similarity"),
+        ({"CC-0137": 0.0}, {"CC-0137": "same_new_device"}, "not a finite value above 0"),
+        ({"CC-0137": 0.82}, {}, "no retrieval reason"),
+        ({"CC-0137": 0.82}, {"CC-0137": "   "}, "no retrieval reason"),
+    ],
+)
+def test_a_citation_without_real_provenance_is_refused_and_nothing_is_written(
+    connection, similarity, reasons, complaint
+):
+    """A cited case with placeholder provenance cannot say why it was cited."""
+    from graph.case_writer import read_case, write_case
+
+    connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+    receipt = write_case(connection, payload(), similarity=similarity, reasons=reasons)
+    try:
+        assert receipt.ok is False
+        assert receipt.write_attempted is False
+        assert receipt.written_to_graph is False
+        assert receipt.graph_case_id == ""
+        assert any(complaint in item for item in receipt.errors), receipt.errors
+        assert "REFUSED" in receipt.describe()
+        # Refused before the graph was touched: no placeholder edge exists.
+        assert scalar(read_case(connection, TEST_CASE_ID), "found") is False
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_one_uncited_case_among_several_refuses_the_whole_write(connection):
+    """Partial provenance is not provenance: every cited case needs both values."""
+    from graph.case_writer import read_case, write_case
+
+    receipt = write_case(
+        connection,
+        payload(similar_case_ids=["CC-0137", "CC-0003"]),
+        similarity={"CC-0137": 0.82, "CC-0003": 0.41},
+        reasons={"CC-0137": "same_new_device"},
+    )
+    try:
+        assert receipt.ok is False
+        assert any("CC-0003" in item for item in receipt.errors)
+        assert scalar(read_case(connection, TEST_CASE_ID), "found") is False
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_the_read_back_fails_a_placeholder_edge_already_in_the_graph(connection):
+    """The write query alone creates 0.0 / "" edges; the read-back must reject them.
+
+    Independent of the pre-write refusal, so a placeholder that reaches the
+    graph by any route still cannot become a receipt.
+    """
+    from graph.case_writer import read_case, verify_read_back
+
+    connection.runInstalledQuery(WRITE, params=payload(), usePost=True)
+    try:
+        body = payload()
+        mismatches = verify_read_back(
+            body,
+            read_case(connection, TEST_CASE_ID),
+            similarity={"CC-0137": 0.0},
+            reasons={"CC-0137": ""},
+        )
+        assert any("placeholder similarity" in item for item in mismatches), mismatches
+        assert any("no retrieval reason" in item for item in mismatches), mismatches
+    finally:
+        connection.delVerticesById("InvestigationCase", TEST_CASE_ID)
+
+
+def test_a_fully_attributed_case_is_verified_with_its_provenance(connection):
+    """The successful path: real similarity and reasons stored, read back, verified."""
+    from graph.case_writer import read_case, write_case
+
+    receipt = write_case(
+        connection,
+        payload(similar_case_ids=["CC-0137", "CC-0003"]),
+        similarity={"CC-0137": 0.82, "CC-0003": 0.41},
+        reasons={"CC-0137": "same_new_device,similar_velocity", "CC-0003": "opposite_outcome"},
+    )
+    try:
+        assert receipt.read_back_mismatches == []
+        assert receipt.ok is True
+        assert receipt.similarity_edges_attributed == 2
+        for item in rows(read_case(connection, TEST_CASE_ID), "similar_prior_cases"):
+            assert item["similarity"] > 0
+            assert item["reasons"].strip()
     finally:
         connection.delVerticesById("InvestigationCase", TEST_CASE_ID)

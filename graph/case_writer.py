@@ -19,6 +19,12 @@ Leaving the edge at zero permanently was the worse option, because an
 ``INV_SIMILAR_TO`` edge with no similarity and no reasons cannot answer why a
 case was cited, which is the question retrieval provenance exists for.
 
+Why provenance is mandatory: every cited prior case must carry its real
+similarity and a non-empty retrieval reason. A citation missing either is
+refused BEFORE anything is written, so the graph never holds a placeholder
+``0.0`` / ``""`` edge, and the read-back independently fails any stored citation
+that still carries one.
+
 The write stays a single path: nothing else in the project writes, and a caller
 that uses this function gets a verified case or a receipt saying it did not.
 """
@@ -101,6 +107,8 @@ class WriteReceipt:
     errors: list[str] = field(default_factory=list)
     read_back_verified: bool = False
     read_back_mismatches: list[str] = field(default_factory=list)
+    #: False when the write was refused before the graph was touched.
+    write_attempted: bool = True
 
     @property
     def ok(self) -> bool:
@@ -132,9 +140,14 @@ class WriteReceipt:
             problems.append(f"on_card={self.unmatched_on_card_id}")
         problems.extend(self.errors)
         problems.extend(f"read-back: {item}" for item in self.read_back_mismatches)
-        if not self.read_back_verified and not self.read_back_mismatches:
+        if self.write_attempted and not self.read_back_verified and not self.read_back_mismatches:
             problems.append("read-back: not verified")
-        label = "PARTIAL" if not self.complete else "NOT VERIFIED"
+        if not self.write_attempted:
+            label = "REFUSED"
+        elif not self.complete:
+            label = "PARTIAL"
+        else:
+            label = "NOT VERIFIED"
         return f"{self.case_id}: {label} ({'; '.join(problems) or 'unknown'})"
 
 
@@ -260,8 +273,61 @@ def verify_read_back(
                 f"reasons of {closed_case_id}: sent {sent_reasons!r}, "
                 f"stored {item.get('reasons')!r}"
             )
+        # Independent of what was sent: a stored citation may never carry the
+        # placeholder the write query creates the edge with.
+        if not _is_real_similarity(item.get("similarity")):
+            mismatches.append(
+                f"{closed_case_id} is stored with placeholder similarity "
+                f"{item.get('similarity')!r}"
+            )
+        if not str(item.get("reasons") or "").strip():
+            mismatches.append(f"{closed_case_id} is stored with no retrieval reason")
 
     return mismatches
+
+
+def _is_real_similarity(value: Any) -> bool:
+    """A similarity that can say how close a cited case was: finite and above 0.
+
+    ``0.0`` is the placeholder the write query creates each edge with, so it is
+    indistinguishable from "never attributed" and cannot count as provenance.
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0.0
+
+
+def provenance_problems(
+    payload: dict[str, Any],
+    similarity: dict[str, float],
+    reasons: dict[str, str],
+) -> list[str]:
+    """Why the cited prior cases cannot be written, or an empty list.
+
+    Every id in ``similar_case_ids`` needs a real similarity and a non-empty
+    reason. Provenance for a case the payload does not cite is refused too,
+    since it means the caller's citation list and its retrieval log disagree.
+    """
+    cited = _requested_ids(payload, "similar_case_ids")
+    problems: list[str] = []
+    for closed_case_id in sorted(cited):
+        if closed_case_id not in similarity:
+            problems.append(f"{closed_case_id} is cited with no similarity")
+        elif not _is_real_similarity(similarity[closed_case_id]):
+            problems.append(
+                f"{closed_case_id} is cited with similarity {similarity[closed_case_id]!r}, "
+                "which is not a finite value above 0"
+            )
+        reason = reasons.get(closed_case_id)
+        if not isinstance(reason, str) or not reason.strip():
+            problems.append(f"{closed_case_id} is cited with no retrieval reason")
+    for closed_case_id in sorted((set(similarity) | set(reasons)) - cited):
+        problems.append(f"provenance was supplied for {closed_case_id}, which is not cited")
+    return problems
 
 
 def write_case(
@@ -282,6 +348,16 @@ def write_case(
     similarity = similarity or {}
     reasons = reasons or {}
     case_id = payload["case_id"]
+
+    # Refused before the graph is touched, so no placeholder edge is created.
+    problems = provenance_problems(payload, similarity, reasons)
+    if problems:
+        return WriteReceipt(
+            case_id=case_id,
+            complete=False,
+            errors=[f"refused before writing: {item}" for item in problems],
+            write_attempted=False,
+        )
 
     result = connection.runInstalledQuery(WRITE_QUERY, params=payload, usePost=True)
 
@@ -304,8 +380,6 @@ def write_case(
     # Only cases the query actually matched can carry an edge to attribute.
     matched_cases = set(payload.get("similar_case_ids", [])) - set(unmatched["unmatched_case_ids"])
     for closed_case_id in sorted(matched_cases):
-        if closed_case_id not in similarity and closed_case_id not in reasons:
-            continue
         try:
             connection.upsertEdge(
                 "InvestigationCase",
@@ -314,8 +388,8 @@ def write_case(
                 "ClosedCase",
                 closed_case_id,
                 {
-                    "similarity": float(similarity.get(closed_case_id, 0.0)),
-                    "reasons": str(reasons.get(closed_case_id, "")),
+                    "similarity": float(similarity[closed_case_id]),
+                    "reasons": reasons[closed_case_id],
                 },
             )
             attributed += 1

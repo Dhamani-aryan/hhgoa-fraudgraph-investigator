@@ -84,6 +84,17 @@ Gate 1 is complete and its six review findings are fixed.
     the fixture with one transaction instead of three reports
     `complete=True` from the write query and fails the read-back with
     "stored but not requested", which the write query alone cannot detect.
+15. **A cited prior case could be stored with placeholder provenance.** A
+    caller that omitted a similarity or reason got an `INV_SIMILAR_TO` edge at
+    `0.0` / `""` and a successful receipt. Every cited case now needs a finite
+    similarity above 0 and a non-empty reason; a citation missing either, or
+    provenance supplied for a case that is not cited, is refused before the
+    graph is touched (`write_attempted=False`, receipt `REFUSED`), so no
+    placeholder edge is ever created. Independently, the read-back fails any
+    stored citation whose similarity is not above 0 or whose reason is empty.
+    Live tests cover the refusal (nothing found on read-back afterwards), a
+    placeholder edge created by the raw write query failing the read-back, and
+    the fully attributed case verifying.
 
 ### Gate 2 leakage findings, fixed
 
