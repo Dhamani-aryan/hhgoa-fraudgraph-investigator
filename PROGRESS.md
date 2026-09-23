@@ -2,7 +2,8 @@
 
 ## Current gate
 
-**Gate 2 — GSQL, graph algorithms, MCP and GraphRAG evidence: in progress.**
+**Gate 2 — GSQL, graph algorithms, MCP and GraphRAG evidence: exit met,
+awaiting review.** Gate 3 has not been started.
 
 Gate 1 is complete and its six review findings are fixed.
 
@@ -25,10 +26,21 @@ Gate 1 is complete and its six review findings are fixed.
 - [x] Case write-back with an independent read-back receipt; `ok` requires the
       read-back to match, and every cited prior case must carry a real
       similarity and reason. Idempotent on rerun.
-- [ ] TigerGraph MCP with a restricted tool surface, and a served-tool inventory
-- [ ] `GraphToolPort`: MCP primary, normalized direct-query fallback
-- [ ] GraphRAG evidence-package builder and citation tests
-- [ ] Gate 2 exit: a fixture case producing an evidence package through MCP
+- [x] Query-surface exit audit (Phase 3 exit conditions), findings 19–23.
+- [x] TigerGraph MCP with a restricted tool surface (six tools, fail-closed).
+- [x] Served-tool inventory, recorded live (`runs/gate2/mcp_tool_inventory.json`).
+- [x] Successful, logged live MCP invocation (client JSONL log and the
+      server's own `--log-tool-calls` log).
+- [x] `GraphToolPort` with MCP primary.
+- [x] Normalized direct-query fallback, canonically equivalent to MCP on all
+      eleven fixture calls.
+- [x] Hybrid GraphRAG: structural queries + WCC + TigerGraph vector memory +
+      policy, assembled into one cited package.
+- [x] TigerGraph vector prior-case retrieval (structural pools, real cosine).
+- [x] TigerGraph vector policy retrieval.
+- [x] Evidence ledger and citation validation.
+- [x] Gate 2 exit: HHG-019 produces a complete evidence package through MCP,
+      with no fallback.
 
 ### Gate 2B findings
 
@@ -148,6 +160,81 @@ Gate 1 is complete and its six review findings are fixed.
     edges — then rebuilds a complete path to the seed for every member. A
     fabricated segment (real cards, another member's device) fails that check.
     Segments are identical at three later review cutoffs.
+
+### Gate 2 exit record
+
+**Exit passed.** `scripts/run_gate2_fixture.py` on HHG-019, live against
+TigerGraph 4.2.5 through the official MCP server, twice with the identical
+package id `PKG-6f3336a456f191f4`; `tests/integration/test_gate2_exit.py`
+rebuilds it and asserts all 21 exit requirements.
+
+- **MCP startup:** the client spawns
+  `tigergraph-mcp --allowed-tools tigergraph__list_graphs,tigergraph__get_graph_schema,tigergraph__is_query_installed,tigergraph__run_installed_query,tigergraph__list_vector_attributes,tigergraph__get_vector_index_status --log-tool-calls`
+  over stdio (`graph/mcp_client.py`), with `TG_HOST`, `TG_GRAPHNAME`,
+  `TG_TGCLOUD`, `TG_SECRET`, `TG_LOG_TOOL_CALLS=true` and
+  `TG_LOG_CALLER_IDENTITY=none` in the subprocess environment only. Startup
+  measured at 3.1–3.4s.
+- **Allowed surface:** exactly those six tools. Eleven installed read
+  queries are allowlisted in `graph/tool_port.py`; `write_investigation_case_v1`
+  is refused by name; parameters over their caps are refused, not clamped.
+- **Fallback classification:** only transport, timeout and availability
+  failures (`GraphUnavailableError`) fall back to direct. Invalid or over-cap
+  parameters, forbidden queries, malformed timestamps, semantic query errors
+  and a query's own refusal never fall back. Fallback events are recorded in
+  package metadata with the primary and fallback trace ids.
+- **Package schema** (`evidence/models.py`): `EvidencePackage` with four
+  sections, the 68-feature vector with per-feature state, the prior-case and
+  policy retrievals, every observed entity id, the ledger's final hash and
+  `PackageMetadata` (port mode, primary adapter, fallback flag and events,
+  adapters used, MCP trace ids, call count and budget, per-call summaries,
+  query versions, creation, anchor, review and data-max times, withheld
+  sections, caps, truncation flags).
+- **Fixture:** HHG-019 (transaction 3503878, card C07987-K2, anchor
+  2016-12-01 17:28:53, review 2016-12-01 22:28:53).
+- **Measured:** 11 of 12 graph calls, all through MCP, fallback not used;
+  4.8–5.0s of MCP call time, 4.9–5.1s to build the package. 24 items:
+  5 trigger/baseline, 9 graph, 6 case memory, 4 policy; 6 supporting,
+  6 contradicting, 12 neutral (2 withheld). WCC: 6-card component, 5 exact
+  path segments, 5 fraud-enriched members, all within two hops. Prior cases:
+  CC-5111, CC-3466 (fraud), CC-4973, CC-3107 (cleared), CC-2172, CC-0510
+  (boundary). Policy: `policy:R6`, `pattern:card_not_present_new_device`,
+  `policy:R1`, `pattern:shared-origin-caution`. `data_max_time` equals the
+  anchor; all twelve citation checks pass; 11 of 11 MCP/direct replays are
+  canonically equal.
+- **Artifacts** (git-ignored `runs/gate2/`): `mcp_tool_inventory.json`,
+  `mcp_calls.jsonl`, `mcp_server_stderr.log`, `mcp_smoke_result.json`,
+  `mcp_direct_equivalence.json`, `evidence_package_HHG-019.json`,
+  `citation_report_HHG-019.json`, `gate2_exit_summary.json`. An automated scan
+  finds no secret, no workspace host and no embedding array in any of them.
+- **Suite:** 623 passed (367 unit, 256 live integration), Ruff clean,
+  compileall clean. All 12 queries reinstalled through
+  `scripts/install_queries.py` and verified installed from the catalog.
+
+### Known limitations after Gate 2
+
+1. Embeddings come from the deterministic local hashing vectorizer, so
+   TigerGraph cosine similarities are modest (0.2–0.5 on the fixture); the
+   vector weight is capped at 0.30 in the composite for that reason.
+2. Every cleared closed case has exposure $0, so the cleared pool's exposure
+   band always relaxes (reported as `band_relaxed`).
+3. Retrieval composite weights, pattern-compatibility mapping and policy
+   relevance table are documented hand-set rules, not fitted; any fitting
+   belongs to Gate 3 on the training period only.
+4. The candidate episode (flagged plus same-channel transactions in the prior
+   48 h) is a candidate for Gate 3 to accept or narrow, not an exposure
+   verdict.
+5. Relevant policy anchors outside TigerGraph's top ten are reported, not
+   added; on HHG-019 `policy:R9`, `pattern:undocumented` and
+   `pattern:risk-score` were relevant but not retrieved.
+6. At the default 20,000-row budget, supernode regions and email domains are
+   withheld (HHG-019 region 264.0), so their co-occurrence is unknown.
+7. Retrieval covers `ClosedCase` only. The agent's own `InvestigationCase`
+   write-backs are not yet retrievable memory, and `write_case` does not
+   write their embedding.
+8. Query vectors are rounded to six decimals so the MCP tool's GET request
+   fits; the cosine moves by less than 1e-5.
+9. Answer-level evidence refs are not yet resolved against the ledger
+   (validator rule R21); that wiring is Gate 4.
 
 ### Gate 2D query-surface exit audit
 
@@ -628,13 +715,12 @@ verification failed exactly that way before the retry was added.
 
 ## Next action
 
-Await review of the Gate 2C correction batch (findings 14–18). On approval,
-continue Gate 2 with TigerGraph MCP on a restricted tool surface, then
-`GraphToolPort`, then the GraphRAG evidence package and its end-to-end exit
-fixture. None of those has been started.
-
-Suite at the end of the batch: 390 passed against live TigerGraph, Ruff and
-compileall clean.
+Await review of Gate 2. On approval, Gate 3 begins with its first checklist
+item: deterministic pattern detectors (card testing per R5, card-not-present,
+card-not-present from a new device, out-of-region use, account takeover) as
+pure functions over the Gate 2 `FeatureVector` and window rows, with boundary
+unit tests, followed by robust baselines and temporal windows as scoring
+inputs.
 
 ## Reproducing the graph from scratch
 
@@ -656,6 +742,12 @@ compileall clean.
 
 ```bash
 .venv/Scripts/python scripts/verify_graph.py --reload-check
+```
+
+Gate 2 exit fixture (official MCP, evidence package, artifacts in runs/gate2):
+
+```bash
+.venv/Scripts/python scripts/run_gate2_fixture.py
 ```
 
 ## Verification commands

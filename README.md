@@ -6,12 +6,16 @@ The authoritative engineering contract is [HHGOA_FRAUD_INVESTIGATOR_BUILD_PLAN.m
 
 ## Current status
 
-Gate 0 (repository, brief, and data contract) is complete and awaiting review.
-The dataset is audited, the card identifier mapping is proven against 14,975
-labelled links, and the answer contract is executable with 119 passing tests.
+Gates 0 and 1 are complete. Gate 2 (GSQL, graph algorithms, MCP and GraphRAG
+evidence) has met its exit and awaits review: benchmark case HHG-019 produces
+a cited evidence package through the official TigerGraph MCP server, with
+structural graph evidence, time-bounded WCC path segments, TigerGraph vector
+prior-case and policy retrieval, and contradicting as well as supporting
+evidence. See [PROGRESS.md](PROGRESS.md).
 
-Gate 1 (TigerGraph graph and vector foundation) is blocked only on TigerGraph
-credentials. See [PROGRESS.md](PROGRESS.md).
+```bash
+.venv/Scripts/python scripts/run_gate2_fixture.py
+```
 
 ## Getting started
 
