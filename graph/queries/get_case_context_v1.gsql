@@ -16,12 +16,27 @@
 // The query also refuses outright when the flagged transaction postdates
 // as_of_ts, rather than returning it. A caller that asks about a transaction
 // which had not happened yet has a bug, and answering would hand it the future.
+//
+// BOUNDING. GSQL runs ACCUM over every matched vertex and applies LIMIT only to
+// the returned set, so a LIMIT does not bound traversal work. An earlier
+// version of this query carried a max_scan LIMIT that bounded nothing.
+//
+// The device history scan is therefore gated by an O(1) precheck against the
+// device's stored lifetime transaction count, and skipped when that exceeds
+// max_scan_rows. That stored figure is a RESOURCE measure, never case evidence:
+// it is reported as device_precheck_lifetime_transactions, it decides only
+// whether the scan is affordable, and the counts that are evidence are all
+// computed to the cutoff.
+//
+// The card and cardholder scans need no gate. A card holds at most a few
+// thousand transactions in this dataset, which is affordable by construction,
+// and no LIMIT is claimed for them.
 
 CREATE QUERY get_case_context_v1(
   STRING flagged_txn_id,
   STRING as_of_ts,
   INT max_adjacent = 40,
-  INT max_scan = 5000
+  INT max_scan_rows = 20000
 ) FOR GRAPH HHGOAFraud {
   DATETIME cutoff = to_datetime(as_of_ts);
   BOOL flagged_is_after_cutoff = FALSE;
@@ -32,6 +47,8 @@ CREATE QUERY get_case_context_v1(
   MaxAccum<DATETIME> @@card_last_seen;
   SumAccum<INT> @@device_txns_to_anchor;
   SetAccum<STRING> @@device_cards_to_anchor;
+  SumAccum<INT> @@device_precheck_rows;
+  BOOL device_scan_skipped = FALSE;
 
   SEED = {Transaction.*};
   flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id
@@ -68,8 +85,7 @@ CREATE QUERY get_case_context_v1(
       ACCUM
         @@card_txns_to_anchor += 1,
         @@card_first_seen += t.ts,
-        @@card_last_seen += t.ts
-      LIMIT max_scan;
+        @@card_last_seen += t.ts;
 
     PRINT @@card_txns_to_anchor AS card_transactions_to_anchor;
     PRINT @@card_first_seen AS card_first_seen_to_anchor;
@@ -77,11 +93,15 @@ CREATE QUERY get_case_context_v1(
 
     holder_history = SELECT t FROM holder:h -(OWNS>)- PaymentCard:c -(MADE>)- Transaction:t
       WHERE t.ts <= cutoff
-      ACCUM @@holder_txns_to_anchor += 1
-      LIMIT max_scan;
+      ACCUM @@holder_txns_to_anchor += 1;
     PRINT @@holder_txns_to_anchor AS cardholder_transactions_to_anchor;
 
-    device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d;
+    device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d
+      POST-ACCUM @@device_precheck_rows += d.n_transactions;
+
+    IF @@device_precheck_rows > max_scan_rows THEN
+      device_scan_skipped = TRUE;
+    END;
     // new_or_found and signature_strength describe this transaction's own
     // identity record, so they carry no future information.
     PRINT device[
@@ -89,14 +109,20 @@ CREATE QUERY get_case_context_v1(
       device.proxy_category, device.match_status, device.signature_strength
     ] AS device;
 
-    device_history = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
-      WHERE t.ts <= cutoff
-      ACCUM
-        @@device_txns_to_anchor += 1,
-        @@device_cards_to_anchor += t.card_id
-      LIMIT max_scan;
-    PRINT @@device_txns_to_anchor AS device_transactions_to_anchor;
-    PRINT @@device_cards_to_anchor.size() AS device_cards_to_anchor;
+    PRINT @@device_precheck_rows AS device_precheck_lifetime_transactions;
+    PRINT max_scan_rows AS scan_row_budget;
+    PRINT device_scan_skipped AS device_scan_skipped;
+
+    IF NOT device_scan_skipped THEN
+      // Affordable by construction: the precheck established the row count.
+      device_history = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+        WHERE t.ts <= cutoff
+        ACCUM
+          @@device_txns_to_anchor += 1,
+          @@device_cards_to_anchor += t.card_id;
+      PRINT @@device_txns_to_anchor AS device_transactions_to_anchor;
+      PRINT @@device_cards_to_anchor.size() AS device_cards_to_anchor;
+    END;
 
     region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
     PRINT region[region.region_code, region.country_code] AS billing_region;
