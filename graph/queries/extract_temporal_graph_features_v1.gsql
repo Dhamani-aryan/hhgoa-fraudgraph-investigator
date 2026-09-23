@@ -1,0 +1,184 @@
+// extract_temporal_graph_features_v1
+//
+// The interpretable graph feature vector for one case, every value computed to
+// the effective cutoff.
+//
+// Deliberately a small set of named, explainable numbers rather than an
+// embedding. A scorer that cannot say which feature moved a probability cannot
+// be defended to an analyst, and the build plan puts FastRP and node2vec out of
+// scope for this deadline.
+//
+// ---------------------------------------------------------------------------
+// TEMPORAL RULE
+// ---------------------------------------------------------------------------
+// effective_cutoff = min(flagged transaction ts, as_of_ts). Every degree, every
+// count and every neighbour outcome is measured at or before it, so the vector
+// describes the graph as it stood when the alert fired. A feature computed over
+// the whole dataset would make an offline evaluation look far better than the
+// runtime it is meant to predict.
+//
+// The query refuses a flagged transaction that postdates as_of_ts, or one that
+// does not exist, and returns no features at all in that case.
+//
+// ---------------------------------------------------------------------------
+// BOUNDING
+// ---------------------------------------------------------------------------
+// The device expansion is gated by an O(1) precheck against the device's stored
+// lifetime transaction count, and skipped when it exceeds max_scan_rows. That
+// stored figure is a RESOURCE measure, never a feature: it decides only whether
+// the scan is affordable, it is reported under a name that says so, and the
+// features themselves are all cutoff-bounded counts.
+//
+// Windowed degrees use 1h, 24h, 7d and to-cutoff, which is the range over which
+// card testing, bursts and slow compromise respectively become visible.
+
+CREATE QUERY extract_temporal_graph_features_v1(
+  STRING flagged_txn_id,
+  STRING as_of_ts,
+  INT shared_window_hours = 168,
+  INT max_scan_rows = 20000
+) FOR GRAPH HHGOAFraud {
+  DATETIME as_of = to_datetime(as_of_ts);
+  DATETIME flagged_ts;
+  BOOL found = FALSE;
+  BOOL after_cutoff = FALSE;
+
+  SumAccum<INT> @@card_1h, @@card_24h, @@card_7d, @@card_to_cutoff;
+  SumAccum<INT> @@device_1h, @@device_24h, @@device_7d, @@device_to_cutoff;
+  SetAccum<STRING> @@device_cards_window;
+  SetAccum<STRING> @@device_customers_window;
+  SumAccum<INT> @@region_to_cutoff;
+  SetAccum<STRING> @@region_cards_window;
+  SumAccum<INT> @@card_region_prior;
+  SumAccum<INT> @@card_device_prior;
+  SetAccum<STRING> @@fraud_neighbour_cards;
+  SetAccum<STRING> @@cleared_neighbour_cards;
+  MaxAccum<DATETIME> @@latest_fraud_neighbour_closure;
+  SumAccum<INT> @@device_precheck_rows;
+  BOOL device_scan_skipped = FALSE;
+
+  SEED = {Transaction.*};
+  flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id
+    POST-ACCUM found = TRUE, flagged_ts = t.ts;
+
+  IF found AND datetime_to_epoch(flagged_ts) > datetime_to_epoch(as_of) THEN
+    after_cutoff = TRUE;
+  END;
+  BOOL refused = (NOT found) OR after_cutoff;
+
+  DATETIME effective_cutoff = as_of;
+  IF found AND datetime_to_epoch(flagged_ts) < datetime_to_epoch(as_of) THEN
+    effective_cutoff = flagged_ts;
+  END;
+  INT cutoff_epoch = datetime_to_epoch(effective_cutoff);
+  INT window_seconds = shared_window_hours * 3600;
+
+  PRINT refused AS refused;
+  PRINT (NOT found) AS flagged_not_found;
+  PRINT after_cutoff AS flagged_after_cutoff;
+
+  IF refused THEN
+    PRINT "the flagged transaction is unknown or postdates as_of_ts" AS refusal_reason;
+  ELSE
+    PRINT effective_cutoff AS effective_cutoff;
+    PRINT shared_window_hours AS shared_window_hours;
+
+    STRING flagged_region = "";
+    STRING flagged_card = "";
+    probe = SELECT t FROM flagged:t
+      POST-ACCUM flagged_region = t.addr1, flagged_card = t.card_id;
+    PRINT flagged_card AS card_id;
+
+    card = SELECT c FROM flagged:t -(MADE_BY>)- PaymentCard:c;
+
+    // Card velocity at four scales.
+    card_hist = SELECT t FROM card:c -(MADE>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+      ACCUM
+        @@card_to_cutoff += 1,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@card_1h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@card_24h += 1 END,
+        CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@card_7d += 1 END,
+        CASE WHEN t.addr1 == flagged_region AND t.txn_id != flagged_txn_id
+          THEN @@card_region_prior += 1 END;
+
+    PRINT @@card_to_cutoff AS card_degree_to_cutoff;
+    PRINT @@card_1h AS card_degree_1h, @@card_24h AS card_degree_24h,
+          @@card_7d AS card_degree_7d;
+    PRINT @@card_region_prior AS card_prior_transactions_in_flagged_region;
+    PRINT (@@card_region_prior == 0) AS region_is_novel_for_card;
+
+    // Device: degree, and how many other cards and customers it reached
+    // inside the window. Distinct customers matters more than distinct cards,
+    // since one person's two cards on one device is not a ring.
+    device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d
+      POST-ACCUM @@device_precheck_rows += d.n_transactions;
+    IF @@device_precheck_rows > max_scan_rows THEN
+      device_scan_skipped = TRUE;
+    END;
+
+    PRINT @@device_precheck_rows AS device_precheck_lifetime_transactions;
+    PRINT device_scan_skipped AS device_scan_skipped;
+    PRINT device[device.device_id, device.new_or_found, device.signature_strength]
+      AS device;
+
+    IF NOT device_scan_skipped THEN
+      device_hist = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+        WHERE t.ts <= effective_cutoff
+        ACCUM
+          @@device_to_cutoff += 1,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 3600 THEN @@device_1h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 86400 THEN @@device_24h += 1 END,
+          CASE WHEN datetime_to_epoch(t.ts) > cutoff_epoch - 604800 THEN @@device_7d += 1 END,
+          CASE WHEN abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds THEN
+            @@device_cards_window += t.card_id,
+            @@device_customers_window += t.customer_id
+          END,
+          CASE WHEN t.card_id == flagged_card AND t.txn_id != flagged_txn_id
+            THEN @@card_device_prior += 1 END;
+
+      PRINT @@device_to_cutoff AS device_degree_to_cutoff;
+      PRINT @@device_1h AS device_degree_1h, @@device_24h AS device_degree_24h,
+            @@device_7d AS device_degree_7d;
+      PRINT @@device_cards_window.size() AS device_distinct_cards_in_window;
+      PRINT @@device_customers_window.size() AS device_distinct_customers_in_window;
+      PRINT @@card_device_prior AS card_prior_transactions_on_device;
+      PRINT (@@card_device_prior == 0) AS device_is_novel_for_card;
+
+      // Neighbour outcomes: cards sharing this device in-window that already
+      // carried a closed case at the cutoff. Both outcomes are returned, so a
+      // cleared neighbour can lower a score rather than only fraud raising it.
+      neighbour_cards = SELECT c FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+        -(MADE_BY>)- PaymentCard:c
+        WHERE t.ts <= effective_cutoff
+          AND abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds
+          AND c.card_id != flagged_card;
+
+      neighbour_cases = SELECT k FROM neighbour_cards:c -(CARD_HAS_CASE>)- ClosedCase:k
+        WHERE k.closed_at <= effective_cutoff
+        ACCUM
+          CASE WHEN k.outcome == "confirmed_fraud" THEN
+            @@fraud_neighbour_cards += k.card_id,
+            @@latest_fraud_neighbour_closure += k.closed_at
+          END,
+          CASE WHEN k.outcome == "cleared" THEN
+            @@cleared_neighbour_cards += k.card_id END;
+
+      PRINT @@fraud_neighbour_cards.size() AS device_fraud_neighbour_cards;
+      PRINT @@cleared_neighbour_cards.size() AS device_cleared_neighbour_cards;
+      PRINT @@fraud_neighbour_cards AS fraud_neighbour_card_ids;
+      PRINT @@latest_fraud_neighbour_closure AS latest_fraud_neighbour_closure;
+    END;
+
+    // Region reach in-window, the supernode check the caller needs to discount
+    // a common billing region.
+    region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
+    region_hist = SELECT t FROM region:r -(BILLS>)- Transaction:t
+      WHERE t.ts <= effective_cutoff
+        AND abs(datetime_to_epoch(t.ts) - cutoff_epoch) <= window_seconds
+      ACCUM @@region_to_cutoff += 1, @@region_cards_window += t.card_id;
+
+    PRINT @@region_to_cutoff AS region_transactions_in_window;
+    PRINT @@region_cards_window.size() AS region_distinct_cards_in_window;
+  END;
+}
