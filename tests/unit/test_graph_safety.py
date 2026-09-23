@@ -9,6 +9,8 @@ Both were found in review:
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from graph.client import (
@@ -17,7 +19,14 @@ from graph.client import (
     connect,
     looks_like_cold_start,
 )
-from scripts.install_schema import VertexCountUnavailable, total_vertices
+from scripts.install_schema import (
+    CatalogUnavailable,
+    VertexCountUnavailable,
+    installed_types,
+    parse_graph_membership,
+    read_catalog,
+    total_vertices,
+)
 
 CONFIG = TigerGraphConfig(
     host="https://ws.tgcloud.io",
@@ -182,3 +191,123 @@ def test_the_secret_never_appears_in_a_retry_failure(fake_driver):
 
     assert CONFIG.secret not in str(error.value)
     assert "***REDACTED***" in str(error.value)
+
+
+# --- catalog reading must never be guessed at ------------------------------
+
+
+GRAPH_LINE = (
+    "---- Global vertices, edges, and all graphs\n"
+    "  - Graph HHGOAFraud(Cardholder:v, PaymentCard:v, OWNS:e, OWNED_BY:e)\n"
+    "  - Graph OtherThing(Foo:v)\n"
+)
+
+
+class _Catalog:
+    """A connection stand-in whose LS response the test controls."""
+
+    def __init__(self, response):
+        self.response = response
+        self.calls = 0
+
+    def gsql(self, statement, graphname=None):
+        self.calls += 1
+        if isinstance(self.response, Exception):
+            raise self.response
+        return self.response
+
+
+def test_membership_parses_from_one_catalog_read():
+    present, vertices, edges = parse_graph_membership(GRAPH_LINE, "HHGOAFraud")
+    assert present is True
+    assert vertices == {"Cardholder", "PaymentCard"}
+    assert edges == {"OWNS", "OWNED_BY"}
+
+
+def test_absent_graph_is_reported_absent_not_raised():
+    present, vertices, edges = parse_graph_membership(GRAPH_LINE, "NotThere")
+    assert present is False
+    assert vertices == set()
+    assert edges == set()
+
+
+def test_unparseable_membership_refuses_rather_than_reporting_no_types():
+    """Present but unreadable must never look like an empty graph."""
+    truncated = "  - Graph HHGOAFraud"  # no parenthesised member list
+    with pytest.raises(CatalogUnavailable, match="membership"):
+        parse_graph_membership(truncated, "HHGOAFraud")
+
+
+def test_catalog_read_failure_raises_rather_than_returning_empty():
+    connection = _Catalog(RuntimeError("504 Gateway Time-out"))
+    with pytest.raises(CatalogUnavailable, match="catalog"):
+        read_catalog(connection, CONFIG)
+
+
+def test_catalog_errors_are_redacted():
+    connection = _Catalog(RuntimeError(f"LS failed, secret={CONFIG.secret}"))
+    with pytest.raises(CatalogUnavailable) as error:
+        read_catalog(connection, CONFIG)
+    assert CONFIG.secret not in str(error.value)
+    assert "***REDACTED***" in str(error.value)
+
+
+def test_installed_types_propagates_a_catalog_failure():
+    connection = _Catalog(RuntimeError("connection reset"))
+    with pytest.raises(CatalogUnavailable):
+        installed_types(connection, CONFIG, "HHGOAFraud")
+
+
+def test_the_catalog_is_read_once_per_discovery():
+    """Two reads let the first succeed and the second fail into empty sets."""
+    connection = _Catalog(GRAPH_LINE)
+    parse_graph_membership(read_catalog(connection, CONFIG), "HHGOAFraud")
+    assert connection.calls == 1
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        RuntimeError("504 Gateway Time-out"),
+        RuntimeError("Starting workspace"),
+        "  - Graph HHGOAFraud",
+        "",
+    ],
+    ids=["gateway-timeout", "cold-start", "truncated-line", "empty-response"],
+)
+def test_discovery_failure_never_reaches_drop_graph(monkeypatch, response):
+    """The finding, end to end: no discovery failure may permit a drop.
+
+    main() is run with --recreate against a connection whose catalog is
+    unusable. DROP GRAPH must never be issued and the run must exit non-zero.
+    """
+    import scripts.install_schema as installer
+
+    dropped: list[str] = []
+
+    def spy_run_gsql(connection, statements, config, label, scope):
+        if "DROP GRAPH" in statements.upper():
+            dropped.append(statements)
+        return ""
+
+    monkeypatch.setattr(installer, "run_gsql", spy_run_gsql)
+    monkeypatch.setattr(installer, "load_config", lambda: CONFIG)
+    monkeypatch.setattr(installer, "connect", lambda config: _Catalog(response))
+    monkeypatch.setattr(sys, "argv", ["install_schema.py", "--recreate"])
+
+    exit_code = installer.main()
+
+    assert dropped == [], f"DROP GRAPH was issued despite {response!r}"
+    assert exit_code == 1
+
+
+def test_a_genuinely_empty_graph_is_still_droppable(monkeypatch):
+    """Guards against the fix becoming a refusal to ever recreate."""
+    import scripts.install_schema as installer
+
+    # Graph present with no members: legitimately empty, so a drop is correct.
+    catalog_text = "  - Graph HHGOAFraud()\n"
+    present, vertices, _edges = installer.parse_graph_membership(catalog_text, "HHGOAFraud")
+    assert present is True
+    assert vertices == set()
+    assert installer.total_vertices(_Counter({}), vertices) == 0

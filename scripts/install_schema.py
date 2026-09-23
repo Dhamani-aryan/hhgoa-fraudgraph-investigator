@@ -20,6 +20,11 @@ each one fails silently rather than loudly:
 * ``LS`` does not print vector attributes, so they are confirmed via
   ``getSchema()``.
 
+Discovery reads the catalog exactly once and refuses rather than guessing. An
+unreadable catalog and an empty graph are indistinguishable if a failure is
+allowed to return empty membership, and ``--recreate`` keys on emptiness before
+dropping.
+
 Two of the README's suggested vertex names are unavailable in this workspace,
 which ships with a starter kit owning global ``Customer`` and ``Card`` types.
 Rather than drop objects belonging to the workspace, they are renamed to
@@ -163,31 +168,48 @@ def run_gsql(connection, statements: str, config, label: str, scope: str) -> str
     return text
 
 
-def catalog(connection, config) -> str:
-    try:
-        return gsql(connection, "LS", GLOBAL_SCOPE)
-    except Exception as error:  # noqa: BLE001
-        # Surfaced, never swallowed: a hidden failure here would make the
-        # installer believe the graph is absent and then clash on its name.
-        print(f"  warning: could not read the catalog ({type(error).__name__}: {error})")
-        return ""
+class CatalogUnavailable(RuntimeError):
+    """The catalog could not be read or its membership could not be parsed."""
 
 
-def installed_types(connection, graphname: str) -> tuple[set[str], set[str]]:
-    """Read the graph's membership from the catalog.
+def read_catalog(connection, config) -> str:
+    """Read the catalog once, or refuse.
 
-    getVertexTypes() returns an empty list for this graph even when the types
-    demonstrably exist, so the catalog is parsed instead. LS lists a graph's
-    members on one line as ``Graph Name(Type:v, EDGE:e, ...)``, which is the
-    authoritative statement of what the graph actually contains.
+    Never returns a placeholder. An unreadable catalog previously came back as
+    an empty string and then as empty membership, which is indistinguishable
+    from a graph that genuinely holds nothing -- and that is what --recreate
+    keys on before dropping.
     """
     try:
-        text = gsql(connection, "LS", GLOBAL_SCOPE)
-    except Exception:  # noqa: BLE001 - catalog unavailable
-        return set(), set()
-    match = re.search(rf"Graph {re.escape(graphname)}\(([^)]*)\)", text)
-    if not match:
-        return set(), set()
+        return gsql(connection, "LS", GLOBAL_SCOPE)
+    except Exception as error:  # noqa: BLE001 - re-raised redacted
+        raise CatalogUnavailable(
+            f"could not read the catalog: {redact(str(error), config)}"
+        ) from None
+
+
+def parse_graph_membership(catalog_text: str, graphname: str) -> tuple[bool, set[str], set[str]]:
+    """Return (graph present, vertex types, edge types) from one catalog read.
+
+    getVertexTypes() returns an empty list for this graph even when the types
+    demonstrably exist, so membership is parsed from the catalog instead. LS
+    lists a graph's members on one line as ``Graph Name(Type:v, EDGE:e, ...)``,
+    which is the authoritative statement of what the graph contains.
+
+    A graph that is present but whose membership line cannot be parsed raises,
+    rather than reporting no types. Reporting no types would let --recreate
+    treat an unreadable graph as an empty one.
+    """
+    present = f"Graph {graphname}" in catalog_text
+    match = re.search(rf"Graph {re.escape(graphname)}\(([^)]*)\)", catalog_text)
+    if present and not match:
+        raise CatalogUnavailable(
+            f"graph {graphname} appears in the catalog but its membership line "
+            "could not be parsed, so its contents are unknown"
+        )
+    if not present:
+        return False, set(), set()
+
     vertices, edges = set(), set()
     for member in match.group(1).split(","):
         member = member.strip()
@@ -195,6 +217,12 @@ def installed_types(connection, graphname: str) -> tuple[set[str], set[str]]:
             vertices.add(member[:-2])
         elif member.endswith(":e"):
             edges.add(member[:-2])
+    return True, vertices, edges
+
+
+def installed_types(connection, config, graphname: str) -> tuple[set[str], set[str]]:
+    """Membership of the graph, from a fresh catalog read. Raises on failure."""
+    _present, vertices, edges = parse_graph_membership(read_catalog(connection, config), graphname)
     return vertices, edges
 
 
@@ -256,7 +284,7 @@ def install_vector_attributes(connection, config, graphname: str) -> None:
 
 def write_report(connection, config, graphname: str, action: str) -> dict:
     """Write runs/schema_install.json from the live schema, not from memory."""
-    vertices, edges = installed_types(connection, graphname)
+    vertices, edges = installed_types(connection, config, graphname)
     vectors = vector_attributes(connection)
     missing = sorted(EXPECTED_VERTEX_TYPES - vertices)
     missing_edges = sorted(set(EXPECTED_EDGE_TYPES) - edges)
@@ -339,15 +367,28 @@ def main() -> int:
     graphname = config.graphname
     print(f"schema install into {graphname} at {config.host}")
 
-    present = f"Graph {graphname}" in catalog(connection, config)
-    vertices, _ = installed_types(connection, graphname)
+    # One catalog read, one parse. Two independent reads previously allowed the
+    # first to establish that the graph exists and the second to fail into empty
+    # membership, which --recreate then read as an empty graph.
+    try:
+        present, vertices, _edges = parse_graph_membership(
+            read_catalog(connection, config), graphname
+        )
+    except CatalogUnavailable as error:
+        print(f"FAILED: {error}")
+        print("  Nothing was changed. Retry once the workspace is responsive.")
+        return 1
     print(f"  graph exists: {present}, vertex types: {len(vertices)}")
 
     if present and not args.recreate:
         # The no-op path validates as strictly as the install path. Vertices
         # alone are not a complete schema: a graph missing a reverse edge or a
         # vector attribute would otherwise report "nothing to do" and exit 0.
-        report = write_report(connection, config, graphname, action="none")
+        try:
+            report = write_report(connection, config, graphname, action="none")
+        except CatalogUnavailable as error:
+            print(f"FAILED: {error}")
+            return 1
         gaps = {
             "vertex types": report["missing_vertex_types"],
             "edge types": report["missing_edge_types"],
@@ -415,7 +456,11 @@ def main() -> int:
         print(f"FAILED: {error}")
         return 1
 
-    report = write_report(connection, config, graphname, action="install")
+    try:
+        report = write_report(connection, config, graphname, action="install")
+    except CatalogUnavailable as error:
+        print(f"FAILED: the schema was installed but cannot be verified: {error}")
+        return 1
     missing = report["missing_vertex_types"]
     missing_edges = report["missing_edge_types"]
     missing_reverse = report["missing_reverse_edge_types"]
