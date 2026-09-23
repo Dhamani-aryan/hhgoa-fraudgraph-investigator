@@ -50,9 +50,24 @@
 // ---------------------------------------------------------------------------
 // A component alone is not evidence anyone can check. Every joined card comes
 // back with the devices that joined it, the hop it was reached at, and the
-// PREDECESSOR CARDS it was reached from. At two hops or more the predecessor is
-// what makes the path reconstructible: without it a card three steps away is
-// asserted to be connected with no way to say through whom.
+// PREDECESSOR CARDS it was reached from.
+//
+// Those two sets are not enough on their own. When several paths reach one
+// member, separate via_from_cards and via_devices sets lose which predecessor
+// used which device: {A, B} and {d1, d2} cannot say whether A shared d1 or d2.
+// So the query also returns PATH SEGMENTS, each an exact
+// (from_card, device_id, to_card, hop) edge of the search: from_card sits at
+// hop - 1, and both cards transacted on device_id inside the window and at or
+// before the effective cutoff. Following segments back from any member to the
+// seed reconstructs a complete path, one hop per segment.
+//
+// Segments are recorded only from the same temporally bounded expansion that
+// admits members, so they obey the same cutoff and window. They are
+// deduplicated, then capped at max_path_segments in (hop, to_card, from_card,
+// device_id) order. Because hop sorts first, a returned segment at hop h always
+// comes with every segment at lower hops, so a truncated output still
+// reconstructs every path it contains. path_segment_count and
+// path_segments_truncated say when the cap bit.
 
 CREATE QUERY wcc_shared_origin_v1(
   STRING seed_card_id,
@@ -62,8 +77,11 @@ CREATE QUERY wcc_shared_origin_v1(
   INT max_hops = 1,
   INT stop_expanding_above = 200,
   INT max_device_cards = 5,
-  INT max_device_rows = 20000
+  INT max_device_rows = 20000,
+  INT max_path_segments = 500
 ) FOR GRAPH HHGOAFraud {
+  TYPEDEF TUPLE<STRING from_card, STRING device_id, STRING to_card, INT hop> PathSegment;
+
   OrAccum @visited;
   SumAccum<INT> @hop;
   SetAccum<STRING> @via_devices;
@@ -74,6 +92,10 @@ CREATE QUERY wcc_shared_origin_v1(
   OrAccum @device_eligible;
   OrAccum @device_over_budget;
   OrAccum @device_considered;
+
+  SetAccum<PathSegment> @@all_segments;
+  HeapAccum<PathSegment>(max_path_segments, hop ASC, to_card ASC, from_card ASC, device_id ASC)
+    @@returned_segments;
 
   SetAccum<STRING> @@component_cards;
   SetAccum<STRING> @@linking_devices;
@@ -153,6 +175,7 @@ CREATE QUERY wcc_shared_origin_v1(
       ACCUM
         c2.@via_devices += d.device_id,
         c2.@via_from_cards += c1.card_id,
+        @@all_segments += PathSegment(c1.card_id, d.device_id, c2.card_id, @@hops_run),
         @@linking_devices += d.device_id
       POST-ACCUM
         c2.@visited = TRUE,
@@ -196,6 +219,16 @@ CREATE QUERY wcc_shared_origin_v1(
   PRINT members[members.card_id, members.customer_id, members.@hop AS hop,
                 members.@via_devices AS via_devices,
                 members.@via_from_cards AS via_from_cards] AS component_members;
+
+  // Exact predecessor-device-member segments, capped with lower hops first.
+  FOREACH segment IN @@all_segments DO
+    @@returned_segments += segment;
+  END;
+  PRINT @@all_segments.size() AS path_segment_count;
+  PRINT @@returned_segments.size() AS path_segments_returned;
+  PRINT (@@all_segments.size() > @@returned_segments.size()) AS path_segments_truncated;
+  PRINT max_path_segments AS path_segment_cap;
+  PRINT @@returned_segments AS path_segments;
 
   linking = SELECT d FROM DEVICES:d WHERE d.@device_eligible;
   PRINT linking[linking.device_id, linking.label, linking.signature_strength,

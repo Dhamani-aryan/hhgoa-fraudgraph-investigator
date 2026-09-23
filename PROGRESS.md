@@ -20,8 +20,11 @@ Gate 1 is complete and its six review findings are fixed.
       `find_policy_chunks_v1` and `wcc_shared_origin_v1`.
 - [x] Time-bounded WCC as a graph algorithm (`wcc_shared_origin_v1`).
 - [x] Path and algorithm provenance: every WCC member carries the devices that
-      joined it and the hop it was reached at.
-- [x] Case write-back with a read-back receipt, idempotent on rerun.
+      joined it and the hop it was reached at, and the query returns exact
+      predecessor-device-member path segments, capped lowest hops first.
+- [x] Case write-back with an independent read-back receipt; `ok` requires the
+      read-back to match, and every cited prior case must carry a real
+      similarity and reason. Idempotent on rerun.
 - [ ] TigerGraph MCP with a restricted tool surface, and a served-tool inventory
 - [ ] `GraphToolPort`: MCP primary, normalized direct-query fallback
 - [ ] GraphRAG evidence-package builder and citation tests
@@ -126,6 +129,25 @@ Gate 1 is complete and its six review findings are fixed.
     over budget. Those are to be composed by the GraphRAG / feature assembler,
     which is not built yet; until then no standalone output of this query is
     the plan's full vector.
+18. **WCC provenance lost which predecessor used which device.** Separate
+    `via_from_cards` and `via_devices` sets cannot say, for a member reached
+    from A and B over d1 and d2, whether A shared d1 or d2. The query now also
+    returns `path_segments`, each an exact `(from_card, device_id, to_card,
+    hop)` edge of the bounded expansion, deduplicated and capped by
+    `max_path_segments` (default 500) in hop-first order, with
+    `path_segment_count`, `path_segments_returned` and
+    `path_segments_truncated`. Hop-first ordering means a returned segment
+    always comes with all lower-hop segments, so a truncated output still
+    reconstructs every path it contains. Measured on the installed query for
+    seed C12897-K1 with 3 hops, a device threshold of 2 and a 336h window:
+    87 cards, 97 segments over 97 devices, members to hop 3, 5 members reached
+    by more than one predecessor. A live test validates all 97 segments against
+    the graph independently of the WCC query — both cards must hold a
+    transaction on that device inside the window and at or before the cutoff,
+    read through `get_transaction_window_v1` and the device's `DEVICE_USED_IN`
+    edges — then rebuilds a complete path to the seed for every member. A
+    fabricated segment (real cards, another member's device) fails that check.
+    Segments are identical at three later review cutoffs.
 
 ### Gate 2 leakage findings, fixed
 
@@ -455,9 +477,13 @@ verification failed exactly that way before the retry was added.
 
 ## Next action
 
-Await Gate 1 review. On approval, begin Gate 2: the remaining bounded GSQL
-query family with `as_of_ts`, time-bounded WCC as a TigerGraph graph algorithm,
-TigerGraph MCP with a restricted tool surface, and the GraphRAG context builder.
+Await review of the Gate 2C correction batch (findings 14–18). On approval,
+continue Gate 2 with TigerGraph MCP on a restricted tool surface, then
+`GraphToolPort`, then the GraphRAG evidence package and its end-to-end exit
+fixture. None of those has been started.
+
+Suite at the end of the batch: 390 passed against live TigerGraph, Ruff and
+compileall clean.
 
 ## Reproducing the graph from scratch
 

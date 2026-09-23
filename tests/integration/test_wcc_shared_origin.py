@@ -218,3 +218,143 @@ def test_a_multi_hop_path_is_reconstructible(connection):
         assert member["via_from_cards"]
         # The predecessor must itself be in the component, or the path is broken.
         assert any(card in reached for card in member["via_from_cards"])
+
+
+# --- exact path segments ---------------------------------------------------
+
+#: Three hops over the fixture cluster with a tight device threshold: members
+#: at hops 1-3 and several members reached by more than one predecessor, which
+#: is where separate via_from_cards / via_devices sets lose the pairing.
+MULTI_HOP = {"max_hops": 3, "max_device_cards": 2, "window_hours": 336}
+
+
+def segment_key(segment: dict) -> tuple:
+    return (segment["from_card"], segment["device_id"], segment["to_card"], segment["hop"])
+
+
+def hops_by_card(result) -> dict[str, int]:
+    members = rows(result, "component_members")
+    return {SEED_CARD: 0} | {item["card_id"]: item["hop"] for item in members}
+
+
+def reconstruct(card: str, segments: list[dict], hop_of: dict[str, int]) -> list[dict]:
+    """Follow segments back from ``card`` to the seed, one hop per segment."""
+    path = []
+    while card != SEED_CARD:
+        step = next(
+            item
+            for item in sorted(segments, key=segment_key)
+            if item["to_card"] == card and hop_of.get(item["from_card"]) == hop_of[card] - 1
+        )
+        path.append(step)
+        card = step["from_card"]
+    return list(reversed(path))
+
+
+def test_every_segment_is_a_real_time_bounded_edge_and_every_member_reaches_the_seed(connection):
+    """Validate each returned segment against the graph, then rebuild each path.
+
+    Checked independently of the WCC query: the card side through
+    get_transaction_window_v1 (the card's transactions inside the window and at
+    or before the cutoff) and the device side through the device's own
+    DEVICE_USED_IN edges. A segment is real only if BOTH cards transacted on
+    that device inside the window.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    result = component(connection, **MULTI_HOP)
+    segments = rows(result, "path_segments")
+    members = rows(result, "component_members")
+    hop_of = hops_by_card(result)
+    assert scalar(result, "path_segments_truncated") is False
+    assert scalar(result, "path_segments_returned") == len(segments) > 0
+    assert max(item["hop"] for item in members) >= 3, "the fixture should reach hop 3"
+
+    # Structure: each segment steps exactly one hop outward.
+    for segment in segments:
+        assert segment["hop"] == hop_of[segment["to_card"]], segment
+        assert hop_of[segment["from_card"]] == segment["hop"] - 1, segment
+
+    window_hours = MULTI_HOP["window_hours"]
+
+    def card_window(card: str) -> tuple[str, set[str]]:
+        window = connection.runInstalledQuery(
+            "get_transaction_window_v1",
+            params={
+                "card_id": card,
+                "anchor_ts": ANCHOR,
+                "as_of_ts": ANCHOR,
+                "hours_before": window_hours,
+                "hours_after": window_hours,
+                "max_rows": 5000,
+            },
+        )
+        assert scalar(window, "returned_rows") < scalar(window, "row_cap"), card
+        return card, {item["txn_id"] for item in rows(window, "window_transactions")}
+
+    def device_transactions(device: str) -> tuple[str, set[str]]:
+        edges = connection.getEdges("DeviceProfile", device, "DEVICE_USED_IN")
+        return device, {str(edge["to_id"]) for edge in edges}
+
+    cards = {item["from_card"] for item in segments} | {item["to_card"] for item in segments}
+    devices = {item["device_id"] for item in segments}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        card_txns = dict(pool.map(card_window, sorted(cards)))
+        device_txns = dict(pool.map(device_transactions, sorted(devices)))
+
+    for segment in segments:
+        on_device = device_txns[segment["device_id"]]
+        assert card_txns[segment["from_card"]] & on_device, f"predecessor not on device: {segment}"
+        assert card_txns[segment["to_card"]] & on_device, f"member not on device: {segment}"
+
+    # Every member rebuilds to a complete path whose length is its hop.
+    for member in members:
+        path = reconstruct(member["card_id"], segments, hop_of)
+        assert len(path) == member["hop"]
+        assert path[0]["from_card"] == SEED_CARD
+        assert path[-1]["to_card"] == member["card_id"]
+        for earlier, later in zip(path, path[1:], strict=False):
+            assert earlier["to_card"] == later["from_card"]
+
+
+def test_segments_pair_each_predecessor_with_the_device_it_used(connection):
+    """The ambiguity the separate sets could not resolve."""
+    result = component(connection, **MULTI_HOP)
+    segments = rows(result, "path_segments")
+    members = rows(result, "component_members")
+    ambiguous = [item for item in members if len(item["via_from_cards"]) > 1]
+    assert ambiguous, "the fixture should have a member reached by several predecessors"
+    for member in members:
+        own = [item for item in segments if item["to_card"] == member["card_id"]]
+        assert own, f"{member['card_id']} has no segment"
+        # The segments are the pairing; the legacy sets are their projections.
+        assert {item["from_card"] for item in own} == set(member["via_from_cards"])
+        assert {item["device_id"] for item in own} == set(member["via_devices"])
+
+
+def test_segments_are_capped_lowest_hops_first(connection):
+    uncapped = component(connection, **MULTI_HOP)
+    total = scalar(uncapped, "path_segment_count")
+    first_hop = sum(1 for item in rows(uncapped, "path_segments") if item["hop"] == 1)
+    cap = first_hop + 2
+
+    capped = component(connection, **MULTI_HOP, max_path_segments=cap)
+    returned = rows(capped, "path_segments")
+    assert scalar(capped, "path_segment_count") == total > cap
+    assert scalar(capped, "path_segments_truncated") is True
+    assert len(returned) == scalar(capped, "path_segments_returned") == cap
+    hops = [item["hop"] for item in returned]
+    assert hops == sorted(hops)
+    # Truncation never strands a segment: its predecessor's own path survives.
+    hop_of = hops_by_card(capped)
+    for item in returned:
+        if item["hop"] > 1:
+            assert reconstruct(item["from_card"], returned, hop_of)
+
+
+@pytest.mark.parametrize("later", LATER_CUTOFFS)
+def test_a_later_review_returns_the_same_segments(connection, later):
+    anchored = rows(component(connection, **MULTI_HOP), "path_segments")
+    at_anchor = {segment_key(item) for item in anchored}
+    reviewed = rows(component(connection, as_of=later, **MULTI_HOP), "path_segments")
+    assert {segment_key(item) for item in reviewed} == at_anchor
