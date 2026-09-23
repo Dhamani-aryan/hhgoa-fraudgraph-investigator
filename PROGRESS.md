@@ -122,6 +122,20 @@ Four findings from the Gate 1 review, fixed before any Gate 2 work.
    `Graph HHGOAFraud()`, is still droppable, and a test pins that so the fix
    cannot degrade into refusing to recreate at all.
 
+6. **Blank and error catalog responses still read as "graph absent".**
+   `read_catalog()` rejected exceptions but accepted an empty string or a
+   textual GSQL failure, and gsql reports many failures as ordinary text with a
+   success status. Discovery then returned `present=False` and `--recreate`
+   reached the global `DROP EDGE` / `DROP VERTEX` loop, which is gated on the
+   flag rather than on the graph being present. The earlier test missed it
+   because it spied on `run_gsql` while that loop calls `gsql()` directly.
+   `read_catalog()` now requires a positive catalog marker and refuses blank,
+   error-text and unrecognised responses; the global drop loop counts the
+   leftover types first, since a global type outlives the graph and keeps its
+   data. The test now records every statement at the connection and asserts no
+   `DROP`, `CREATE`, `ALTER` or `RUN` after any discovery failure — verified to
+   fail without the fix.
+
 ### Retrieval quality, measured
 
 The query "three small online authorizations within an hour followed by a
