@@ -32,10 +32,30 @@ TEMPLATE_GRAPH_NAME = "HHGOAFraud"
 
 FAILURE_MARKERS = (
     "semantic check fails",
+    "semantic check error",
     "syntax error",
     "failed to create",
     "not using any graphs",
+    "saved as draft",
 )
+
+#: Installed status is read from the catalog rather than from the install
+#: transcript. Substring matching on the transcript is what let
+#: "Query installation failed!" pass as success, because it contains the word
+#: "install"; tightening the substrings then rejected the success transcript,
+#: which quotes a curl example. The catalog states the status outright, so it
+#: is the thing to ask.
+INSTALLED_PATTERN = r"-\s+{name}\(.*?\((installed|draft)"
+
+
+def installed_status(connection, graphname: str, name: str) -> str | None:
+    """Query status from the catalog: "installed", "draft", or None if absent."""
+    try:
+        catalog = str(connection.gsql(f"USE GRAPH {graphname}\nLS", graphname=GLOBAL_SCOPE))
+    except Exception:  # noqa: BLE001
+        return None
+    match = re.search(INSTALLED_PATTERN.format(name=re.escape(name)), catalog)
+    return match.group(1) if match else None
 
 
 def render(path: Path, graphname: str) -> str:
@@ -88,8 +108,9 @@ def main() -> int:
             continue
 
         result = str(connection.gsql(f"{use}INSTALL QUERY {name}", graphname=GLOBAL_SCOPE))
-        if "successfully" not in result.lower() and "install" not in result.lower():
-            print("INSTALL FAILED")
+        status = installed_status(connection, graphname, name)
+        if status != "installed":
+            print(f"INSTALL FAILED (catalog status: {status})")
             print(f"      {redact(result, config).strip()[:400]}")
             failures.append(name)
             continue
