@@ -22,6 +22,10 @@ QUERY = "find_shared_origin_activity_v1"
 CLUSTER_DEVICE = "8cccc8f01f55e75b"
 CLUSTER_ANCHOR = "2016-07-15 12:00:00"
 
+#: The device on benchmark case HHG-017's flagged transaction. A generic
+#: Windows 10 / chrome 65 signature that ends the dataset on 299 cards.
+FIXTURE_DEVICE = "8ea57628c8afc1b3"
+
 
 @pytest.fixture(scope="module")
 def connection():
@@ -57,7 +61,6 @@ def test_supernodes_are_refused(connection, kind, entity):
     """Sharing a supernode says nothing about coordination."""
     result = probe(connection, kind, entity, CLUSTER_ANCHOR)
     assert scalar(result, "refused_as_supernode") is True
-    assert scalar(result, "entity_total_cards") > scalar(result, "supernode_threshold")
     assert scalar(result, "refusal_reason")
 
 
@@ -70,10 +73,44 @@ def test_a_refused_entity_returns_no_shared_activity(connection):
 
 def test_the_threshold_is_what_decides_refusal(connection):
     """Raising the cap admits the same entity, so the control is the threshold."""
-    strict = probe(connection, "device", CLUSTER_DEVICE, CLUSTER_ANCHOR, max_entity_cards=10)
+    strict = probe(connection, "device", CLUSTER_DEVICE, CLUSTER_ANCHOR, max_entity_cards=2)
     permissive = probe(connection, "device", CLUSTER_DEVICE, CLUSTER_ANCHOR, max_entity_cards=250)
     assert scalar(strict, "refused_as_supernode") is True
     assert scalar(permissive, "refused_as_supernode") is False
+
+
+def test_rarity_is_counted_as_of_the_cutoff_not_from_stored_totals(connection):
+    """The stored n_cards attribute is a lifetime figure and must not decide this.
+
+    The fixture device ends the dataset on 299 cards. Counted to an August
+    cutoff it has none, and to the November anchor 164, so an entity's rarity
+    grows with the cutoff instead of being fixed by the future.
+    """
+    early = probe(connection, "device", FIXTURE_DEVICE, "2016-08-01 00:00:00")
+    anchor = probe(connection, "device", FIXTURE_DEVICE, "2016-11-11 23:46:24")
+    late = probe(connection, "device", FIXTURE_DEVICE, "2016-12-31 23:59:59")
+
+    early_cards = scalar(early, "entity_cards_to_anchor")
+    anchor_cards = scalar(anchor, "entity_cards_to_anchor")
+    late_cards = scalar(late, "entity_cards_to_anchor")
+
+    assert early_cards < anchor_cards < late_cards
+    assert late_cards == 299, "the lifetime total should only be reached at the end"
+
+
+def test_a_truncated_rarity_scan_refuses(connection):
+    """Fail closed: rarity we could not establish is not rarity."""
+    result = probe(
+        connection,
+        "device",
+        FIXTURE_DEVICE,
+        "2016-12-31 23:59:59",
+        max_rarity_scan=5,
+        max_entity_cards=100000,
+    )
+    assert scalar(result, "rarity_scan_truncated") is True
+    assert scalar(result, "refused_as_supernode") is True
+    assert "scan budget" in scalar(result, "refusal_reason")
 
 
 # --- the admitted path -----------------------------------------------------

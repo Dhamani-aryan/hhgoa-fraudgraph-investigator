@@ -1,32 +1,47 @@
 // calculate_case_exposure_v1
 //
-// Exposure is the sum of the absolute amounts of the transactions named as part
-// of the episode. The policy defines it, the answer reports it, and the
+// Exposure is the sum of the absolute amounts of the transactions named as
+// part of the episode. The policy defines it, the answer reports it, and the
 // validator recomputes it, so it is never a number the model produced.
 //
-// Missing identifiers are reported explicitly rather than skipped: a total that
-// silently omits an unknown id would understate exposure and could move the
-// case under the $1,000 report threshold or the $2,500 BLOCK_CARD boundary.
+// as_of_ts is required, not optional. Without it the query summed whatever
+// identifiers it was handed, so a caller could include a transaction that had
+// not happened at the anchor and inflate exposure across the $1,000 report
+// threshold or the $2,500 BLOCK_CARD boundary. Identifiers after the cutoff are
+// now excluded from the total and reported separately, so the caller sees that
+// it asked for something inadmissible rather than silently getting a bigger
+// number.
+//
+// Missing identifiers are likewise reported rather than skipped: a total that
+// quietly omits an unknown id understates exposure.
 
 CREATE QUERY calculate_case_exposure_v1(
-  SET<STRING> txn_ids
+  SET<STRING> txn_ids,
+  STRING as_of_ts
 ) FOR GRAPH HHGOAFraud {
+  DATETIME cutoff = to_datetime(as_of_ts);
   SumAccum<DOUBLE> @@exposure;
   SumAccum<INT> @@found;
   SetAccum<STRING> @@seen;
+  SetAccum<STRING> @@after_cutoff;
 
   SEED = {Transaction.*};
-  matched = SELECT t FROM SEED:t
-    WHERE txn_ids.contains(t.txn_id)
+  requested = SELECT t FROM SEED:t WHERE txn_ids.contains(t.txn_id)
     ACCUM
-      @@exposure += abs(t.amount),
-      @@found += 1,
-      @@seen += t.txn_id;
+      @@seen += t.txn_id,
+      CASE WHEN t.ts <= cutoff
+        THEN @@exposure += abs(t.amount), @@found += 1
+        ELSE @@after_cutoff += t.txn_id
+      END;
+
+  included = SELECT t FROM requested:t WHERE t.ts <= cutoff;
 
   PRINT @@exposure AS exposure_usd;
-  PRINT @@found AS transactions_found;
+  PRINT @@found AS transactions_counted;
   PRINT txn_ids.size() AS transactions_requested;
   PRINT (txn_ids MINUS @@seen) AS missing_txn_ids;
+  PRINT @@after_cutoff AS excluded_after_cutoff;
+  PRINT as_of_ts AS as_of_ts;
 
-  PRINT matched[matched.txn_id, matched.ts, matched.amount] AS transactions;
+  PRINT included[included.txn_id, included.ts, included.amount] AS transactions;
 }

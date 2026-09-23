@@ -2,81 +2,126 @@
 //
 // The trigger package: the flagged transaction and everything one hop from it.
 //
-// as_of_ts is the case anchor. Every transaction this query returns is at or
-// before it, so the agent cannot see activity that had not happened when the
-// alert fired. The flagged transaction itself defines the anchor, so it is
-// always admissible.
+// TEMPORAL RULE, and the reason this query looks more laborious than it needs
+// to: no stored aggregate is returned as runtime evidence.
 //
-// Bounded: adjacent transactions are capped by max_adjacent. A card with
-// thousands of transactions returns a window, never its whole history.
+// Card.n_transactions, Cardholder.last_seen, DeviceProfile.n_cards and the
+// like are computed over the whole six-month dataset at load time. Returning
+// them tells the investigator what happened after the alert -- an earlier
+// version answered a 2016-11-11 case with last_seen 2016-12-25 and a lifetime
+// count of 59 against the 53 that existed at the anchor. Every count here is
+// therefore recomputed by traversal against as_of_ts, and the stored
+// attributes are deliberately not printed.
+//
+// The query also refuses outright when the flagged transaction postdates
+// as_of_ts, rather than returning it. A caller that asks about a transaction
+// which had not happened yet has a bug, and answering would hand it the future.
 
 CREATE QUERY get_case_context_v1(
   STRING flagged_txn_id,
   STRING as_of_ts,
-  INT max_adjacent = 40
+  INT max_adjacent = 40,
+  INT max_scan = 5000
 ) FOR GRAPH HHGOAFraud {
-  SetAccum<VERTEX<Transaction>> @@flagged;
   DATETIME cutoff = to_datetime(as_of_ts);
+  BOOL flagged_is_after_cutoff = FALSE;
+  DATETIME flagged_ts;
+
+  SumAccum<INT> @@card_txns_to_anchor, @@holder_txns_to_anchor;
+  MinAccum<DATETIME> @@card_first_seen;
+  MaxAccum<DATETIME> @@card_last_seen;
+  SumAccum<INT> @@device_txns_to_anchor;
+  SetAccum<STRING> @@device_cards_to_anchor;
 
   SEED = {Transaction.*};
-  flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id;
+  flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id
+    POST-ACCUM flagged_ts = t.ts;
 
-  PRINT flagged[
-    flagged.txn_id, flagged.ts, flagged.amount, flagged.product_cd,
-    flagged.channel, flagged.risk_score, flagged.addr1, flagged.addr2,
-    flagged.p_email_domain, flagged.r_email_domain,
-    flagged.card_id, flagged.customer_id
-  ] AS flagged_transaction;
+  probe = SELECT t FROM flagged:t WHERE t.ts > cutoff
+    POST-ACCUM flagged_is_after_cutoff = TRUE;
 
-  card = SELECT c FROM flagged:t -(MADE_BY>)- PaymentCard:c;
-  PRINT card[
-    card.card_id, card.customer_id, card.card_type, card.card_network,
-    card.n_transactions, card.first_seen, card.last_seen
-  ] AS card;
+  PRINT flagged_is_after_cutoff AS flagged_after_cutoff;
+  PRINT as_of_ts AS as_of_ts;
 
-  holder = SELECT h FROM card:c -(OWNED_BY>)- Cardholder:h;
-  PRINT holder[
-    holder.customer_id, holder.n_cards, holder.n_transactions,
-    holder.first_seen, holder.last_seen
-  ] AS cardholder;
+  IF flagged_is_after_cutoff THEN
+    PRINT "the flagged transaction postdates as_of_ts, so it is not yet visible"
+      AS refusal_reason;
+  ELSE
+    PRINT flagged[
+      flagged.txn_id, flagged.ts, flagged.amount, flagged.product_cd,
+      flagged.channel, flagged.risk_score, flagged.addr1, flagged.addr2,
+      flagged.p_email_domain, flagged.r_email_domain,
+      flagged.card_id, flagged.customer_id
+    ] AS flagged_transaction;
 
-  // Device, emails and region are attributes of the flagged transaction, so
-  // they carry no time of their own beyond the transaction's.
-  device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d;
-  PRINT device[
-    device.device_id, device.label, device.device_type, device.new_or_found,
-    device.proxy_category, device.match_status, device.signature_strength,
-    device.n_cards, device.n_transactions
-  ] AS device;
+    card = SELECT c FROM flagged:t -(MADE_BY>)- PaymentCard:c;
+    // Identity only. n_transactions, first_seen and last_seen are lifetime
+    // values and are replaced below by as-of counts.
+    PRINT card[card.card_id, card.customer_id, card.card_type, card.card_network]
+      AS card;
 
-  region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
-  PRINT region[
-    region.region_code, region.country_code, region.n_cards,
-    region.n_transactions
-  ] AS billing_region;
+    holder = SELECT h FROM card:c -(OWNED_BY>)- Cardholder:h;
+    PRINT holder[holder.customer_id] AS cardholder;
 
-  purchaser = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e;
-  PRINT purchaser[purchaser.domain, purchaser.n_cards] AS purchaser_email;
+    card_history = SELECT t FROM card:c -(MADE>)- Transaction:t
+      WHERE t.ts <= cutoff
+      ACCUM
+        @@card_txns_to_anchor += 1,
+        @@card_first_seen += t.ts,
+        @@card_last_seen += t.ts
+      LIMIT max_scan;
 
-  recipient = SELECT e FROM flagged:t -(RECIPIENT_EMAIL>)- EmailDomain:e;
-  PRINT recipient[recipient.domain, recipient.n_cards] AS recipient_email;
+    PRINT @@card_txns_to_anchor AS card_transactions_to_anchor;
+    PRINT @@card_first_seen AS card_first_seen_to_anchor;
+    PRINT @@card_last_seen AS card_last_seen_to_anchor;
 
-  // Other activity on the same card, up to the anchor only.
-  adjacent = SELECT t FROM card:c -(MADE>)- Transaction:t
-    WHERE t.txn_id != flagged_txn_id AND t.ts <= cutoff
-    ORDER BY t.ts DESC
-    LIMIT max_adjacent;
+    holder_history = SELECT t FROM holder:h -(OWNS>)- PaymentCard:c -(MADE>)- Transaction:t
+      WHERE t.ts <= cutoff
+      ACCUM @@holder_txns_to_anchor += 1
+      LIMIT max_scan;
+    PRINT @@holder_txns_to_anchor AS cardholder_transactions_to_anchor;
 
-  PRINT adjacent[
-    adjacent.txn_id, adjacent.ts, adjacent.amount, adjacent.product_cd,
-    adjacent.channel, adjacent.risk_score, adjacent.addr1
-  ] AS adjacent_transactions;
+    device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d;
+    // new_or_found and signature_strength describe this transaction's own
+    // identity record, so they carry no future information.
+    PRINT device[
+      device.device_id, device.label, device.device_type, device.new_or_found,
+      device.proxy_category, device.match_status, device.signature_strength
+    ] AS device;
 
-  // Prior cases already closed on this card at the anchor time.
-  prior = SELECT k FROM card:c -(CARD_HAS_CASE>)- ClosedCase:k
-    WHERE k.closed_at <= cutoff;
-  PRINT prior[
-    prior.case_id, prior.outcome, prior.pattern, prior.closed_at,
-    prior.exposure_usd
-  ] AS prior_cases_on_card;
+    device_history = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+      WHERE t.ts <= cutoff
+      ACCUM
+        @@device_txns_to_anchor += 1,
+        @@device_cards_to_anchor += t.card_id
+      LIMIT max_scan;
+    PRINT @@device_txns_to_anchor AS device_transactions_to_anchor;
+    PRINT @@device_cards_to_anchor.size() AS device_cards_to_anchor;
+
+    region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
+    PRINT region[region.region_code, region.country_code] AS billing_region;
+
+    purchaser = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e;
+    PRINT purchaser[purchaser.domain] AS purchaser_email;
+
+    recipient = SELECT e FROM flagged:t -(RECIPIENT_EMAIL>)- EmailDomain:e;
+    PRINT recipient[recipient.domain] AS recipient_email;
+
+    adjacent = SELECT t FROM card:c -(MADE>)- Transaction:t
+      WHERE t.txn_id != flagged_txn_id AND t.ts <= cutoff
+      ORDER BY t.ts DESC
+      LIMIT max_adjacent;
+
+    PRINT adjacent[
+      adjacent.txn_id, adjacent.ts, adjacent.amount, adjacent.product_cd,
+      adjacent.channel, adjacent.risk_score, adjacent.addr1
+    ] AS adjacent_transactions;
+
+    prior = SELECT k FROM card:c -(CARD_HAS_CASE>)- ClosedCase:k
+      WHERE k.closed_at <= cutoff;
+    PRINT prior[
+      prior.case_id, prior.outcome, prior.pattern, prior.closed_at,
+      prior.exposure_usd
+    ] AS prior_cases_on_card;
+  END;
 }

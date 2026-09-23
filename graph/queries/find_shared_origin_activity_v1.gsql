@@ -8,12 +8,29 @@
 //
 // * Supernodes. The Gate 0 audit measured gmail.com touching 9,332 cards and
 //   billing region 299.0 touching 2,075, while a strong device signature has a
-//   median of 1-2. An entity whose global card count exceeds max_entity_cards
-//   is refused outright and reported as refused, because sharing it says
-//   nothing about coordination.
+//   median of 1-2. An entity sharing too widely is refused outright and
+//   reported as refused, because sharing it says nothing about coordination.
+//
+//   Rarity is counted AS OF the cutoff, not read from the stored n_cards
+//   attribute. n_cards is computed over the whole six-month dataset at load
+//   time, so using it would let relationships formed after the alert decide
+//   whether an entity counts as rare today -- and could flip an entity between
+//   admitted and refused on the strength of the future.
+//
+//   The default threshold is 100. The Gate 0 audit put the 99th percentile of
+//   cards-per-device at 137 for signatures of strength 3 or more, so 100 admits
+//   only entities below that, and a signature shared with a hundred cards is
+//   already far from rare. It is a parameter because Gate 3 tunes the detection
+//   thresholds together against the historical replay.
+//
+//   The rarity scan is bounded by max_rarity_scan and FAILS CLOSED. If the scan
+//   is truncated the entity is refused, because an entity with more history
+//   than we are willing to read is precisely the kind that is too common to
+//   imply coordination, and guessing in the permissive direction is the
+//   expensive mistake here.
 // * Time locality. Only activity inside window_hours of the anchor counts, so
 //   a device shared across six months is not read as a ring.
-// * Rarity. The entity's global card count comes back with the result, so the
+// * Rarity. The as-of distinct-card count comes back with the result, so the
 //   caller can weigh a device seen on 3 cards differently from one seen on 800.
 // * Fraud enrichment. Connected cards are reported with whether they carry a
 //   closed case already confirmed as fraud at the anchor time.
@@ -30,50 +47,72 @@ CREATE QUERY find_shared_origin_activity_v1(
   STRING as_of_ts,
   STRING exclude_card_id = "",
   INT window_hours = 168,
-  INT max_entity_cards = 250,
-  INT max_rows = 400
+  INT max_entity_cards = 100,
+  INT max_rows = 400,
+  INT max_rarity_scan = 20000
 ) FOR GRAPH HHGOAFraud {
   DATETIME anchor = to_datetime(anchor_ts);
   DATETIME cutoff = to_datetime(as_of_ts);
   INT anchor_epoch = datetime_to_epoch(anchor);
 
-  SumAccum<INT> @@entity_total_cards;
+  SetAccum<STRING> @@entity_cards_to_anchor;
+  SumAccum<INT> @@rarity_rows_scanned;
   SumAccum<INT> @@window_transactions;
   SetAccum<STRING> @@window_cards;
   SetAccum<STRING> @@fraud_cards;
   BOOL refused_supernode = FALSE;
 
-  // Resolve the shared entity and read its global card count, which is the
-  // rarity measure the supernode control keys on.
+  // Resolve the shared entity. The stored n_cards attribute is deliberately
+  // not read; rarity is counted to the cutoff below.
   DEVICES = {DeviceProfile.*};
   REGIONS = {BillingRegion.*};
   EMAILS = {EmailDomain.*};
 
   device = SELECT d FROM DEVICES:d
-    WHERE entity_kind == "device" AND d.device_id == entity_id
-    POST-ACCUM @@entity_total_cards += d.n_cards;
-
+    WHERE entity_kind == "device" AND d.device_id == entity_id;
   region = SELECT r FROM REGIONS:r
-    WHERE entity_kind == "region" AND r.region_code == entity_id
-    POST-ACCUM @@entity_total_cards += r.n_cards;
-
+    WHERE entity_kind == "region" AND r.region_code == entity_id;
   email = SELECT e FROM EMAILS:e
-    WHERE entity_kind == "recipient_email" AND e.domain == entity_id
-    POST-ACCUM @@entity_total_cards += e.n_cards;
+    WHERE entity_kind == "recipient_email" AND e.domain == entity_id;
+
+  // As-of rarity: distinct cards on this entity at or before the cutoff.
+  rarity_device = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t
+    WHERE t.ts <= cutoff
+    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
+    LIMIT max_rarity_scan;
+
+  rarity_region = SELECT t FROM region:r -(BILLS>)- Transaction:t
+    WHERE t.ts <= cutoff
+    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
+    LIMIT max_rarity_scan;
+
+  rarity_email = SELECT t FROM email:e -(RECEIVED_BY_DOMAIN>)- Transaction:t
+    WHERE t.ts <= cutoff
+    ACCUM @@entity_cards_to_anchor += t.card_id, @@rarity_rows_scanned += 1
+    LIMIT max_rarity_scan;
+
+  BOOL rarity_scan_truncated = (@@rarity_rows_scanned >= max_rarity_scan);
 
   PRINT entity_kind AS entity_kind, entity_id AS entity_id;
-  PRINT @@entity_total_cards AS entity_total_cards;
+  PRINT @@entity_cards_to_anchor.size() AS entity_cards_to_anchor;
+  PRINT @@rarity_rows_scanned AS rarity_rows_scanned;
+  PRINT rarity_scan_truncated AS rarity_scan_truncated;
   PRINT max_entity_cards AS supernode_threshold;
+  PRINT as_of_ts AS as_of_ts;
 
-  IF @@entity_total_cards > max_entity_cards THEN
+  IF @@entity_cards_to_anchor.size() > max_entity_cards OR rarity_scan_truncated THEN
     refused_supernode = TRUE;
   END;
 
   PRINT refused_supernode AS refused_as_supernode;
 
   IF refused_supernode THEN
-    PRINT "entity is shared too widely for co-occurrence to imply coordination"
-      AS refusal_reason;
+    IF rarity_scan_truncated THEN
+      PRINT "rarity could not be established within the scan budget, so the entity is treated as too common to imply coordination" AS refusal_reason;
+    ELSE
+      PRINT "entity is shared too widely for co-occurrence to imply coordination"
+        AS refusal_reason;
+    END;
   ELSE
     // Transactions on the entity, inside the window and at or before the anchor.
     entity_txns = SELECT t FROM device:d -(DEVICE_USED_IN>)- Transaction:t

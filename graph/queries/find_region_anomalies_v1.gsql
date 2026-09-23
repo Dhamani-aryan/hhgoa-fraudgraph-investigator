@@ -7,6 +7,14 @@
 // trip, while a new region alongside continuing home activity is a clone. The
 // query returns both sides so the caller can tell them apart instead of
 // treating any new region as fraud.
+//
+// History is bounded by the FLAGGED TRANSACTION'S OWN TIMESTAMP, not by
+// as_of_ts. Those differ whenever a case is reviewed later than it was
+// triggered, and bounding by as_of_ts let a later cutoff grow the history from
+// 52 transactions to 58 while the flagged transaction never moved -- which
+// would make a region look familiar on the strength of visits that happened
+// after the alert fired. The cutoff still applies on top, so neither bound can
+// be exceeded.
 
 CREATE QUERY find_region_anomalies_v1(
   STRING card_id,
@@ -38,7 +46,8 @@ CREATE QUERY find_region_anomalies_v1(
   // Region history strictly before the flagged transaction, so the flagged
   // transaction cannot make its own region look familiar.
   history = SELECT t FROM card:c -(MADE>)- Transaction:t
-    WHERE t.ts <= cutoff AND t.txn_id != flagged_txn_id AND t.addr1 != ""
+    WHERE t.ts < flagged_ts AND t.ts <= cutoff
+      AND t.txn_id != flagged_txn_id AND t.addr1 != ""
     ACCUM
       @@region_history += (t.addr1 -> 1),
       CASE WHEN t.addr1 == flagged_region THEN
@@ -58,6 +67,7 @@ CREATE QUERY find_region_anomalies_v1(
   // Simultaneous presence in two regions is what separates a clone from a trip.
   concurrent = SELECT t FROM card:c -(MADE>)- Transaction:t
     WHERE t.ts <= cutoff
+      AND t.txn_id != flagged_txn_id
       AND t.addr1 != ""
       AND t.addr1 != flagged_region
       AND abs(datetime_to_epoch(t.ts) - datetime_to_epoch(flagged_ts)) <= home_window_hours * 3600
