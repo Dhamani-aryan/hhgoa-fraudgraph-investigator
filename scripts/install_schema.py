@@ -57,6 +57,29 @@ GLOBAL_SCOPE = "global"
 #: The graph name written in the checked-in GSQL, replaced with TG_GRAPHNAME.
 TEMPLATE_GRAPH_NAME = "HHGOAFraud"
 
+#: Reverse edge names declared by WITH REVERSE_EDGE in schema.gsql. These are
+#: not cosmetic: the card traversal walks OWNED_BY and CARD_HAS_CASE, so a
+#: missing reverse edge breaks the Gate 1 exit criteria while every forward
+#: edge still looks present.
+EXPECTED_REVERSE_EDGE_TYPES = (
+    "OWNED_BY",
+    "MADE_BY",
+    "DEVICE_USED_IN",
+    "PURCHASED_BY_DOMAIN",
+    "RECEIVED_BY_DOMAIN",
+    "BILLS",
+    "PREVIOUS",
+    "INVOLVED_IN_CASE",
+    "CARD_HAS_CASE",
+    "CARD_CONNECTED_TO_CASE",
+    "INVOLVED_IN_INVESTIGATION",
+    "CARD_HAS_INVESTIGATION",
+    "CARD_CONNECTED_TO_INVESTIGATION",
+    "DEVICE_IN_INVESTIGATION",
+    "SIMILAR_CASE_OF",
+    "POLICY_CITED_BY",
+)
+
 EXPECTED_EDGE_TYPES = (
     "OWNS",
     "MADE",
@@ -236,6 +259,8 @@ def write_report(connection, config, graphname: str, action: str) -> dict:
     vertices, edges = installed_types(connection, graphname)
     vectors = vector_attributes(connection)
     missing = sorted(EXPECTED_VERTEX_TYPES - vertices)
+    missing_edges = sorted(set(EXPECTED_EDGE_TYPES) - edges)
+    missing_reverse_edges = sorted(set(EXPECTED_REVERSE_EDGE_TYPES) - edges)
     missing_vectors = [
         f"{vertex}.{name}"
         for vertex, name in EXPECTED_VECTOR_ATTRIBUTES.items()
@@ -252,22 +277,46 @@ def write_report(connection, config, graphname: str, action: str) -> dict:
         "vertex_types": sorted(vertices),
         "edge_types": sorted(edges),
         "missing_vertex_types": missing,
+        "missing_edge_types": missing_edges,
+        "missing_reverse_edge_types": missing_reverse_edges,
         "vector_attributes": vectors,
         "missing_vector_attributes": missing_vectors,
-        "installed": not missing and not missing_vectors,
+        # Success means every vertex type, every forward edge, every reverse
+        # edge a query walks, and every vector attribute. Vertices alone are
+        # not a complete schema.
+        "installed": not (missing or missing_edges or missing_reverse_edges or missing_vectors),
     }
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     return report
 
 
+class VertexCountUnavailable(RuntimeError):
+    """A vertex count could not be read, so emptiness cannot be established."""
+
+
 def total_vertices(connection, types: set[str]) -> int:
+    """Count every vertex in the graph, or refuse to answer.
+
+    This number is the only thing standing between ``--recreate`` and a
+    populated graph, so a failed count must never be read as zero. A timeout is
+    exactly the case that matters: the live workspace has produced a 60-second
+    count timeout, and treating that as "empty" would drop a loaded graph.
+
+    realtime=True because the cached count lags a load badly enough to report a
+    freshly loaded graph as empty.
+    """
     total = 0
-    for name in types:
+    for name in sorted(types):
         try:
-            total += int(connection.getVertexCount(name))
-        except Exception:  # noqa: BLE001 - best effort
-            continue
+            count = connection.getVertexCount(name, realtime=True)
+        except Exception as error:  # noqa: BLE001 - re-raised as a refusal
+            raise VertexCountUnavailable(
+                f"could not count {name}: {type(error).__name__}: {error}"
+            ) from None
+        if count is None or not isinstance(count, int):
+            raise VertexCountUnavailable(f"count for {name} was not a number: {count!r}")
+        total += count
     return total
 
 
@@ -295,19 +344,36 @@ def main() -> int:
     print(f"  graph exists: {present}, vertex types: {len(vertices)}")
 
     if present and not args.recreate:
-        missing = EXPECTED_VERTEX_TYPES - vertices
-        if not missing:
-            # Still write the full report: a no-op run is evidence too, and a
-            # stub would discard the vector-attribute record from the install.
-            print("  schema already installed, nothing to do")
-            write_report(connection, config, graphname, action="none")
+        # The no-op path validates as strictly as the install path. Vertices
+        # alone are not a complete schema: a graph missing a reverse edge or a
+        # vector attribute would otherwise report "nothing to do" and exit 0.
+        report = write_report(connection, config, graphname, action="none")
+        gaps = {
+            "vertex types": report["missing_vertex_types"],
+            "edge types": report["missing_edge_types"],
+            "reverse edge types": report["missing_reverse_edge_types"],
+            "vector attributes": report["missing_vector_attributes"],
+        }
+        if not any(gaps.values()):
+            print("  schema already installed and complete, nothing to do")
+            print(f"  vector attrs: {report['vector_attributes']}")
             return 0
-        print(f"  schema is incomplete; missing {sorted(missing)}")
+        print("  schema is incomplete:")
+        for label, missing_items in gaps.items():
+            if missing_items:
+                print(f"    missing {label}: {missing_items}")
         print("  rerun with --recreate to reinstall from scratch")
         return 1
 
     if present and args.recreate:
-        count = total_vertices(connection, vertices)
+        try:
+            count = total_vertices(connection, vertices)
+        except VertexCountUnavailable as error:
+            # Not knowing whether the graph is empty is not the same as knowing
+            # it is empty. Refuse rather than risk dropping loaded data.
+            print(f"REFUSED: cannot confirm the graph is empty. {error}")
+            print("  Retry once the workspace is responsive, or drop it in Savanna.")
+            return 1
         if count > 0:
             print(f"REFUSED: the graph holds {count:,} vertices.")
             print("  Drop it deliberately in Savanna if you really mean to discard them.")
@@ -351,6 +417,8 @@ def main() -> int:
 
     report = write_report(connection, config, graphname, action="install")
     missing = report["missing_vertex_types"]
+    missing_edges = report["missing_edge_types"]
+    missing_reverse = report["missing_reverse_edge_types"]
     missing_vectors = report["missing_vector_attributes"]
 
     vertex_list = report["vertex_types"]
@@ -363,10 +431,16 @@ def main() -> int:
     if missing:
         print(f"FAILED: missing vertex types {missing}")
         return 1
+    if missing_edges:
+        print(f"FAILED: missing edge types {missing_edges}")
+        return 1
+    if missing_reverse:
+        print(f"FAILED: missing reverse edge types {missing_reverse}")
+        return 1
     if missing_vectors:
         print(f"FAILED: missing vector attributes {missing_vectors}")
         return 1
-    print("Result: schema and vector attributes installed.")
+    print("Result: schema, edges and vector attributes installed.")
     return 0
 
 
