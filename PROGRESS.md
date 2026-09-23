@@ -84,6 +84,33 @@ Each of these looked like success and is now recorded in the code that hit it:
     through the REST file endpoint on any file size; embeddings go through the
     REST upsert path instead.
 
+### Gate 1 review corrections
+
+Four findings from the Gate 1 review, fixed before any Gate 2 work.
+
+1. **`--recreate` could have dropped a populated graph.** `total_vertices()`
+   swallowed count failures and summed them as zero, so an unreadable count
+   read as an empty graph. The live workspace had already produced a 60-second
+   count timeout. A failed or non-numeric count now raises and recreation
+   refuses: not knowing whether the graph is empty is not the same as knowing
+   that it is. Verified by refusing on the loaded graph at 634,302 vertices.
+2. **Savanna cold starts failed the run.** `connect()` attempted once. It now
+   retries with bounded backoff, up to 8 attempts from 5 to 60 seconds, but
+   only for failures that look transient. A wrong secret still fails on the
+   first attempt, so a batch run cannot hang behind a real configuration error.
+3. **Traversal verification did not require what the gate requires.** Devices
+   and prior cases were recorded but not asserted, so a graph with no
+   `FROM_DEVICE` or `CASE_ON_CARD` edges would have passed. Both are now
+   required.
+4. **The installer could report success on an incomplete schema.** It checked
+   vertices only. It now validates all 16 forward edges, all 16 reverse edges
+   (the traversal walks `OWNED_BY` and `CARD_HAS_CASE`, so a missing reverse
+   edge breaks the gate while every forward edge looks present) and all three
+   vector attributes, on both the install path and the no-op path.
+   `runs/schema_install.json` records `missing_edge_types` and
+   `missing_reverse_edge_types`. Commit `8937e40` carries this change alongside
+   finding 1; its message describes only finding 1.
+
 ### Retrieval quality, measured
 
 The query "three small online authorizations within an hour followed by a
@@ -196,10 +223,15 @@ trace and a real write.
 
 ## Current blocker
 
-None blocking. One item to confirm: **auto-stop and auto-start on the Savanna
-workspace**. The official brief requires them and Gate 1 records the setup;
-they have not been verified from here, and an auto-stop firing mid-load would
-otherwise look like a connection failure.
+None.
+
+**Auto Resume is enabled and Auto Suspend is set to 60 minutes**, confirmed in
+the Savanna console by the primary engineer. The brief requires both.
+
+Auto Suspend is why `graph/client.py` retries: the first call after an idle
+period lands on Savanna's "Starting workspace" page rather than the database,
+and a single attempt turns a routine cold start into a failed run. A live
+verification failed exactly that way before the retry was added.
 
 ## Next action
 
