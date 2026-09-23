@@ -1,0 +1,39 @@
+// get_transaction_window_v1
+//
+// The ordered run of transactions around the anchor on one card, which is what
+// burst, card-testing and episode-boundary detection reads.
+//
+// hours_before and hours_after are both relative to anchor_ts, and anything
+// after as_of_ts is excluded whatever hours_after asks for. That matters: the
+// window may legitimately look forward within an episode, but never past the
+// point the case was opened.
+
+CREATE QUERY get_transaction_window_v1(
+  STRING card_id,
+  STRING anchor_ts,
+  STRING as_of_ts,
+  INT hours_before = 48,
+  INT hours_after = 0,
+  INT max_rows = 300
+) FOR GRAPH HHGOAFraud {
+  DATETIME anchor = to_datetime(anchor_ts);
+  DATETIME cutoff = to_datetime(as_of_ts);
+  DATETIME window_start = epoch_to_datetime(datetime_to_epoch(anchor) - hours_before * 3600);
+  DATETIME window_end = epoch_to_datetime(datetime_to_epoch(anchor) + hours_after * 3600);
+
+  SEED = {PaymentCard.*};
+  card = SELECT c FROM SEED:c WHERE c.card_id == card_id;
+
+  window = SELECT t FROM card:c -(MADE>)- Transaction:t
+    WHERE t.ts >= window_start AND t.ts <= window_end AND t.ts <= cutoff
+    ORDER BY t.ts ASC
+    LIMIT max_rows;
+
+  PRINT window[
+    window.txn_id, window.ts, window.amount, window.product_cd,
+    window.channel, window.risk_score, window.addr1,
+    window.p_email_domain, window.r_email_domain
+  ] AS window_transactions;
+
+  PRINT window.size() AS returned_rows, max_rows AS row_cap;
+}

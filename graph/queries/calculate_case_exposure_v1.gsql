@@ -1,0 +1,32 @@
+// calculate_case_exposure_v1
+//
+// Exposure is the sum of the absolute amounts of the transactions named as part
+// of the episode. The policy defines it, the answer reports it, and the
+// validator recomputes it, so it is never a number the model produced.
+//
+// Missing identifiers are reported explicitly rather than skipped: a total that
+// silently omits an unknown id would understate exposure and could move the
+// case under the $1,000 report threshold or the $2,500 BLOCK_CARD boundary.
+
+CREATE QUERY calculate_case_exposure_v1(
+  SET<STRING> txn_ids
+) FOR GRAPH HHGOAFraud {
+  SumAccum<DOUBLE> @@exposure;
+  SumAccum<INT> @@found;
+  SetAccum<STRING> @@seen;
+
+  SEED = {Transaction.*};
+  matched = SELECT t FROM SEED:t
+    WHERE txn_ids.contains(t.txn_id)
+    ACCUM
+      @@exposure += abs(t.amount),
+      @@found += 1,
+      @@seen += t.txn_id;
+
+  PRINT @@exposure AS exposure_usd;
+  PRINT @@found AS transactions_found;
+  PRINT txn_ids.size() AS transactions_requested;
+  PRINT (txn_ids MINUS @@seen) AS missing_txn_ids;
+
+  PRINT matched[matched.txn_id, matched.ts, matched.amount] AS transactions;
+}

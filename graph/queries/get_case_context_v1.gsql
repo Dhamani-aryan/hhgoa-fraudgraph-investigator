@@ -1,0 +1,82 @@
+// get_case_context_v1
+//
+// The trigger package: the flagged transaction and everything one hop from it.
+//
+// as_of_ts is the case anchor. Every transaction this query returns is at or
+// before it, so the agent cannot see activity that had not happened when the
+// alert fired. The flagged transaction itself defines the anchor, so it is
+// always admissible.
+//
+// Bounded: adjacent transactions are capped by max_adjacent. A card with
+// thousands of transactions returns a window, never its whole history.
+
+CREATE QUERY get_case_context_v1(
+  STRING flagged_txn_id,
+  STRING as_of_ts,
+  INT max_adjacent = 40
+) FOR GRAPH HHGOAFraud {
+  SetAccum<VERTEX<Transaction>> @@flagged;
+  DATETIME cutoff = to_datetime(as_of_ts);
+
+  SEED = {Transaction.*};
+  flagged = SELECT t FROM SEED:t WHERE t.txn_id == flagged_txn_id;
+
+  PRINT flagged[
+    flagged.txn_id, flagged.ts, flagged.amount, flagged.product_cd,
+    flagged.channel, flagged.risk_score, flagged.addr1, flagged.addr2,
+    flagged.p_email_domain, flagged.r_email_domain,
+    flagged.card_id, flagged.customer_id
+  ] AS flagged_transaction;
+
+  card = SELECT c FROM flagged:t -(MADE_BY>)- PaymentCard:c;
+  PRINT card[
+    card.card_id, card.customer_id, card.card_type, card.card_network,
+    card.n_transactions, card.first_seen, card.last_seen
+  ] AS card;
+
+  holder = SELECT h FROM card:c -(OWNED_BY>)- Cardholder:h;
+  PRINT holder[
+    holder.customer_id, holder.n_cards, holder.n_transactions,
+    holder.first_seen, holder.last_seen
+  ] AS cardholder;
+
+  // Device, emails and region are attributes of the flagged transaction, so
+  // they carry no time of their own beyond the transaction's.
+  device = SELECT d FROM flagged:t -(FROM_DEVICE>)- DeviceProfile:d;
+  PRINT device[
+    device.device_id, device.label, device.device_type, device.new_or_found,
+    device.proxy_category, device.match_status, device.signature_strength,
+    device.n_cards, device.n_transactions
+  ] AS device;
+
+  region = SELECT r FROM flagged:t -(BILLED_IN>)- BillingRegion:r;
+  PRINT region[
+    region.region_code, region.country_code, region.n_cards,
+    region.n_transactions
+  ] AS billing_region;
+
+  purchaser = SELECT e FROM flagged:t -(PURCHASER_EMAIL>)- EmailDomain:e;
+  PRINT purchaser[purchaser.domain, purchaser.n_cards] AS purchaser_email;
+
+  recipient = SELECT e FROM flagged:t -(RECIPIENT_EMAIL>)- EmailDomain:e;
+  PRINT recipient[recipient.domain, recipient.n_cards] AS recipient_email;
+
+  // Other activity on the same card, up to the anchor only.
+  adjacent = SELECT t FROM card:c -(MADE>)- Transaction:t
+    WHERE t.txn_id != flagged_txn_id AND t.ts <= cutoff
+    ORDER BY t.ts DESC
+    LIMIT max_adjacent;
+
+  PRINT adjacent[
+    adjacent.txn_id, adjacent.ts, adjacent.amount, adjacent.product_cd,
+    adjacent.channel, adjacent.risk_score, adjacent.addr1
+  ] AS adjacent_transactions;
+
+  // Prior cases already closed on this card at the anchor time.
+  prior = SELECT k FROM card:c -(CARD_HAS_CASE>)- ClosedCase:k
+    WHERE k.closed_at <= cutoff;
+  PRINT prior[
+    prior.case_id, prior.outcome, prior.pattern, prior.closed_at,
+    prior.exposure_usd
+  ] AS prior_cases_on_card;
+}
